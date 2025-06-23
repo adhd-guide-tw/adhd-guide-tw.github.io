@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天秤的兩端：藥物的好處 vs 壞處 - ADHD 衛教指南</title>
+    
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 Google Fonts - Noto Sans TC & Lexend -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- 引入 Alpine.js 用於互動效果 -->
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- 自訂樣式與動畫 -->
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --text-color: #e5e7eb;
+            --card-bg: rgba(31, 41, 55, 0.5);
+            --border-color: rgba(75, 85, 99, 0.5);
+            --primary-color: #3b82f6;
+            --secondary-color: #8b5cf6;
+            --accent-color: #ec4899;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+        body {
+            font-family: 'Lexend', 'Noto Sans TC', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow-x: hidden;
+        }
+        
+        .particle-bg {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1; background-color: var(--bg-color);
+            background-image: radial-gradient(circle at 1px 1px, #374151 1px, transparent 0);
+            background-size: 25px 25px;
+        }
+
+        .gradient-text {
+            background: linear-gradient(90deg, #60a5fa, #a78bfa, #f472b6);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+        
+        .content-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        
+        [x-cloak] { display: none !important; }
+
+    </style>
+</head>
+<body class="antialiased">
+    <div class="particle-bg"></div>
+
+    <header class="container mx-auto px-6 py-6 flex justify-between items-center sticky top-0 z-40 bg-opacity-80 backdrop-blur-md" style="background-color: var(--bg-color);">
+        <div class="text-lg font-bold">
+            <a href="index.html" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+                </svg>
+                返回探索之旅
+            </a>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-6 py-12">
+        <section class="text-center mb-16">
+            <h1 class="text-4xl md:text-5xl font-bold gradient-text mb-4">天秤的兩端</h1>
+            <p class="max-w-3xl mx-auto text-lg text-gray-300">決定是否用藥，就像衡量一個天秤的兩端。這裡沒有絕對的好與壞，只有基於科學證據的「效益」與「風險」。點擊下方的卡片，展開你想了解的細節。</p>
+        </section>
+
+        <!-- 內容網格布局 -->
+        <div class="grid lg:grid-cols-2 gap-12">
+
+            <!-- 左側：正向效益 -->
+            <section id="benefits">
+                <h2 class="text-3xl font-bold mb-6 flex items-center gap-3 text-green-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>正向效益：藥物帶來的保護效果</span>
+                </h2>
+                
+                <div class="space-y-6">
+                    <div x-data="{ open: false }" class="content-card rounded-lg overflow-hidden">
+                        <button @click="open = !open" class="w-full text-left p-6 flex justify-between items-center">
+                            <h3 class="text-xl font-bold">降低意外與衝動行為風險</h3>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform flex-shrink-0" :class="{'rotate-180': open}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                        </button>
+                        <div x-show="open" x-collapse x-cloak class="px-6 pb-6 text-gray-300 border-t border-gray-700">
+                            <p class="mt-4 mb-4">多項大型全國性研究指出，規律的藥物治療能有效降低因ADHD核心症狀（如衝動、注意力不集中）所引發的意外事件。</p>
+                            <ul class="list-disc list-inside space-y-3 text-sm">
+                                <li><strong class="text-white">降低骨折風險：</strong>台灣健保資料庫研究發現，長期服藥(>180天)的ADHD兒童，骨折風險較未用藥者低23%。<em class="text-gray-400 block">(Chen et al., PLOS ONE, 2017)</em></li>
+                                <li><strong class="text-white">降低車禍風險：</strong>瑞典大型研究指出，在服藥期間，ADHD患者的車禍風險降低了38%-42%。<em class="text-gray-400 block">(Chang et al., JAMA Psychiatry, 2017)</em></li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <div x-data="{ open: false }" class="content-card rounded-lg overflow-hidden">
+                         <button @click="open = !open" class="w-full text-left p-6 flex justify-between items-center">
+                            <h3 class="text-xl font-bold">穩定情緒與心理健康</h3>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform flex-shrink-0" :class="{'rotate-180': open}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                        </button>
+                        <div x-show="open" x-collapse x-cloak class="px-6 pb-6 text-gray-300 border-t border-gray-700">
+                            <p class="mt-4 mb-4">適當的藥物治療，不僅改善核心症狀，也對情緒調節及預防其他精神共病有正面影響。</p>
+                             <ul class="list-disc list-inside space-y-3 text-sm">
+                               <li><strong class="text-white">降低自殺風險：</strong>台灣研究顯示，持續用藥的ADHD青少年，自殺企圖風險最高可降低72%。<em class="text-gray-400 block">(Liang et al., Research in Developmental Disabilities, 2018)</em></li>
+                               <li><strong class="text-white">降低憂鬱與行為問題：</strong>韓國全國性研究發現，長期用藥者罹患憂鬱症的風險降低30%，對立違抗症(ODD)風險則降低48%。<em class="text-gray-400 block">(Park et al., Child and Adolescent Psychiatry and Mental Health, 2022)</em></li>
+                               <li><strong class="text-white">改善情緒失調：</strong>臨床研究指出，Methylphenidate能顯著改善ADHD患者的易怒、攻擊性與焦慮症狀。<em class="text-gray-400 block">(Suzer Gamli & Tahiroglu, Neuropsychiatric Disease and Treatment, 2018)</em></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 右側：潛在風險 -->
+            <section id="risks">
+                <h2 class="text-3xl font-bold mb-6 flex items-center gap-3 text-red-400">
+                     <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>潛在風險：你需要留意的信號</span>
+                </h2>
+                <div class="space-y-6">
+                    <div x-data="{ open: false }" class="content-card rounded-lg overflow-hidden">
+                        <button @click="open = !open" class="w-full text-left p-6 flex justify-between items-center">
+                            <h3 class="text-xl font-bold">常見但通常可控的副作用</h3>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform flex-shrink-0" :class="{'rotate-180': open}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                        </button>
+                        <div x-show="open" x-collapse x-cloak class="px-6 pb-6 text-gray-300 border-t border-gray-700">
+                             <p class="mt-4 mb-4">多數人在用藥初期會經歷一些副作用，但通常是輕微且暫時的，可透過與醫師討論調整劑量或服藥時間來管理。</p>
+                             <ul class="list-disc list-inside space-y-3 text-sm">
+                                <li><strong class="text-white">主要副作用：</strong>統合分析研究指出最常見的包含食慾降低、口乾、失眠、頭痛、噁心等。<em class="text-gray-400 block">(Bieś et al., Pharmaceuticals, 2023)</em></li>
+                                <li><strong class="text-white">關於睡眠：</strong>雖然失眠是常見擔憂，但大型前瞻研究發現長期用藥並不會惡化整體睡眠品質，部分成人研究甚至顯示有改善效果。<em class="text-gray-400 block">(Häge et al., Journal of Attention Disorders, 2024)</em></li>
+                                <li><strong class="text-white">關於情緒：</strong>部分使用者初期可能感到情緒平淡或易怒，但Cochrane的回顧顯示，嚴重易怒的發生率約僅1%。<em class="text-gray-400 block">(Storebø et al., Cochrane Database of Systematic Reviews, 2018)</em></li>
+                            </ul>
+                        </div>
+                    </div>
+                     <div x-data="{ open: false }" class="content-card rounded-lg overflow-hidden">
+                        <button @click="open = !open" class="w-full text-left p-6 flex justify-between items-center">
+                            <h3 class="text-xl font-bold">罕見但需警覺的嚴重事件</h3>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform flex-shrink-0" :class="{'rotate-180': open}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                        </button>
+                         <div x-show="open" x-collapse x-cloak class="px-6 pb-6 text-gray-300 border-t border-gray-700">
+                            <p class="mt-4 mb-4">在極少數情況下，可能會出現較嚴重的反應，這也是為何需要定期回診追蹤、且不應自行隨意用藥的原因。</p>
+                            <ul class="list-disc list-inside space-y-3 text-sm">
+                                <li><strong class="text-white">心血管與精神風險：</strong>Cochrane系統性回顧指出，約有1%的患者可能出現嚴重不良事件，如心臟問題或精神症狀，因此有相關病史者需特別謹慎評估。<em class="text-gray-400 block">(Storebø et al., Cochrane Database of Systematic Reviews, 2018)</em></li>
+                                <li><strong class="text-white">用藥錯誤風險：</strong>美國毒物管制中心的數據顯示，ADHD藥物劑量錯誤的通報有增加趨勢，尤其是在兒童族群，凸顯了安全用藥教育的重要性。<em class="text-gray-400 block">(Hodges et al., Pediatrics, 2023)</em></li>
+                                <li><strong class="text-white">動物實驗警訊：</strong>在大鼠身上注射高劑量MPH會引起腦部氧化壓力。這提醒我們藥物並非全無影響，但其結果不能直接等同於人體在治療劑量下的反應。<em class="text-gray-400 block">(Motaghinejad et al., Neurotoxicity Research, 2022)</em></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <footer class="text-center mt-16 md:mt-24 py-8 px-6 border-t border-gray-800">
+        <div class="container mx-auto">
+            <p class="mb-4 text-gray-400">&copy; 2025 ADHD 神經探索地圖. 本站內容基於公開研究資料整理，僅供參考，無法取代專業醫療建議。</p>
+            <div class="flex justify-center items-center space-x-2 text-sm text-gray-500">
+                <a href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank" class="hover:text-gray-300">
+                    <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" style="height: 1.2em; display: inline-block; vertical-align: middle;" alt="Creative Commons">
+                    <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" style="height: 1.2em; display: inline-block; vertical-align: middle;" alt="Attribution">
+                    <img src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" style="height: 1.2em; display: inline-block; vertical-align: middle;" alt="Share Alike">
+                </a>
+                <span>本網站內容採用 <a href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank" class="underline hover:text-gray-300">姓名標示-相同方式分享 4.0 國際</a> 授權條款釋出。</span>
+            </div>
+        </div>
+    </footer>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const focusModeToggle = document.getElementById('focus-mode-toggle');
+            if(focusModeToggle) {
+                focusModeToggle.addEventListener('click', () => {
+                    document.body.classList.toggle('focus-mode');
+                });
+            }
+        });
+    </script>
+</body>
+</html>
