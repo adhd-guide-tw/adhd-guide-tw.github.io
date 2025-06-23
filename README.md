@@ -5,7 +5,7 @@
 
 ---
 
-**[前往網站探索之旅 ->](https://你的使用者名稱.github.io/)**
+**[前往網站探索之旅 ->](https://adhd-guide-tw.github.io/)**
 
 ## 專案簡介 (Introduction)
 
