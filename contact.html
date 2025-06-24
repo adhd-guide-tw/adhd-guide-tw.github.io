@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聯絡我們｜ADHD 光譜</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Manrope', 'Noto Sans TC', sans-serif;
+            background-color: #FEFDF8;
+            color: #3D352E;
+        }
+        :focus-visible {
+            outline: 3px solid #6D9886;
+            outline-offset: 2px;
+            border-radius: 6px;
+        }
+        .prose-custom {
+            font-size: 1.125rem;
+            line-height: 1.75;
+        }
+        .prose-custom h2 {
+            font-size: 2.25rem;
+            font-weight: 800;
+            color: #A44A3F;
+            margin-top: 2.5em;
+            margin-bottom: 1em;
+            padding-bottom: 0.3em;
+            border-bottom: 2px solid #F2E1D9;
+        }
+        .prose-custom strong {
+            color: #BF4040;
+            font-weight: 700;
+        }
+        .form-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #D1C7BE;
+            border-radius: 0.5rem;
+            background-color: #FFFFFF;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .form-input:focus {
+            outline: none;
+            border-color: #6D9886;
+            box-shadow: 0 0 0 3px rgba(109, 152, 134, 0.2);
+        }
+        .submit-button {
+            background-color: #D9534F;
+            color: white;
+            font-weight: 700;
+            padding: 0.75rem 2rem;
+            border-radius: 9999px;
+            transition: background-color 0.2s, transform 0.2s;
+        }
+        .submit-button:hover {
+            background-color: #A44A3F;
+            transform: scale(1.05);
+        }
+        .disclaimer-box {
+            background-color: #FFFBEB;
+            border: 1px solid #FBBF24;
+            color: #92400E;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-[#FEFDF8]/80 backdrop-blur-lg">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+             <a href="index.html" class="flex items-center space-x-3">
+                <svg width="40" height="40" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="#F2E1D9"/><path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/><circle cx="35" cy="45" r="5" fill="#3D352E"/><circle cx="65" cy="45" r="5" fill="#3D352E"/></svg>
+                <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
+            </a>
+            <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 py-12 md:py-20">
+        <div class="max-w-3xl mx-auto">
+            
+            <header class="mb-12 text-center">
+                <h1 class="text-4xl md:text-5xl font-extrabold leading-tight text-[#3D352E] mt-2 mb-4">
+                    與我們聊聊
+                </h1>
+                <p class="text-xl text-gray-600">你的聲音，是讓這片光譜更完整、更溫暖的重要力量。</p>
+            </header>
+            
+            <div class="bg-white p-8 md:p-12 rounded-2xl shadow-lg prose-custom">
+                <p>我們深信，這個網站只是一個開始。真正的智慧，存在於每一位 ADHD 夥伴與其支持者的生命經驗中。</p>
+                <p>無論你是：</p>
+                <ul>
+                    <li>發現了網站內容中的任何錯誤或需要補充之處。</li>
+                    <li>有任何建議，希望能看到我們探討新的主題。</li>
+                    <li>單純想分享你的故事或表達感謝。</li>
+                </ul>
+                <p>我們都誠摯地邀請你，透過下方的表單或電子郵件與我們聯繫。每一則訊息，我們都會認真閱讀。</p>
+
+                <div class="my-10">
+                    <form action="#" method="POST">
+                        <div class="space-y-6">
+                            <div>
+                                <label for="name" class="block text-lg font-semibold mb-2">你的名字或暱稱</label>
+                                <input type="text" name="name" id="name" class="form-input" placeholder="讓我們知道如何稱呼你">
+                            </div>
+                             <div>
+                                <label for="email" class="block text-lg font-semibold mb-2">你的電子郵件</label>
+                                <input type="email" name="email" id="email" class="form-input" placeholder="方便我們回覆你（選填）">
+                            </div>
+                             <div>
+                                <label for="message" class="block text-lg font-semibold mb-2">你想說的話</label>
+                                <textarea name="message" id="message" rows="6" class="form-input" placeholder="任何想法、建議或心情，都歡迎分享..."></textarea>
+                            </div>
+                        </div>
+                        <div class="mt-8 flex justify-center">
+                            <button type="submit" class="submit-button">送出訊息</button>
+                        </div>
+                    </form>
+                </div>
+
+                 <hr class="border-gray-200 my-10">
+
+                <div class="text-center">
+                     <p class="font-semibold text-lg">或者，你也可以直接寄信給我們：</p>
+                     <a href="mailto:contact@adhdspectrum.tw" class="text-2xl font-bold">contact@adhdspectrum.tw</a>
+                </div>
+
+                <div class="disclaimer-box mt-12">
+                    <p><strong>⚠️ 請注意：</strong>此信箱僅供網站內容交流與回饋，<strong>無法提供任何個人醫療建議或緊急協助</strong>。若您有緊急的身心狀況，請立即聯繫當地的生命線 (1995)、安心專線 (1925) 或尋求鄰近的醫療院所協助。</p>
+                </div>
+            </div>
+            
+        </article>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-[#3D352E] text-white mt-20">
+        <div class="container mx-auto px-6 py-12 text-center">
+            <p class="text-gray-300">感謝你願意花時間，讓這個社群變得更好。</p>
+            <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
+        </div>
+    </footer>
+
+</body>
+</html>
