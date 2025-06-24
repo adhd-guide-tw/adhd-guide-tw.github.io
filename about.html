@@ -40,11 +40,28 @@
             color: #6D9886;
             text-decoration: underline;
         }
+        .prose-custom ul {
+            list-style-type: '— ';
+            padding-left: 1.25rem;
+        }
         .mission-statement {
             background-color: #F0F5F2;
             border-left: 5px solid #6D9886;
             padding: 2rem;
             border-radius: 0.5rem;
+        }
+        .contact-button {
+            background-color: #A44A3F; /* 使用較深的紅色以增強對比 */
+            color: #FFFFFF; /* 白色文字 */
+            font-weight: 700;
+            padding: 0.75rem 2rem;
+            border-radius: 9999px;
+            transition: background-color 0.2s, transform 0.2s;
+            text-decoration: none;
+        }
+        .contact-button:hover {
+            background-color: #BF4040;
+            transform: scale(1.05);
         }
     </style>
 </head>
@@ -82,13 +99,19 @@
             </figure>
             
             <!-- Section 1: The "Why" -->
-            <h2>我們的起點</h2>
-            <p>這個網站的誕生，源自於一個非常簡單卻深刻的需求。創辦人（或許就是正在閱讀的您）在面對堆積如山的學術報告時，心中浮現一個問題：「這些充滿洞見、卻冰冷的數據和文字，要如何才能真正幫助到那些正在迷霧中摸索的 ADHD 夥伴和他們的家人？」</p>
-            <p>我們發現，在繁體中文世界裡，缺乏一個能同時兼顧<strong>科學嚴謹性</strong>與<strong>人性溫暖</strong>的資源平台。許多資訊要嘛過於學術，難以親近；要嘛流於個人經驗，缺乏實證基礎。於是，「ADHD 光譜」應運而生。</p>
+            <h2>本專案的起點</h2>
+            <p>這個網站的誕生，始於一位姓蔡、目前在北榮旁邊讀大學的學生，他也是一位在 19 歲才確診、並長期服藥的 ADHD 患者。</p>
+            <p>個人的生命經驗，以及與同儕交流時發現的共同困惑，催生了本專案的核心研究關懷。他發現，在藥物幫助他找回專注力的同時，他的行為模式、情緒調節與內心世界，也發生了細微而複雜的變化。他想知道：</p>
+            <ul>
+                <li>長期服藥後，我們對「刺激」的追求是否會改變？</li>
+                <li>我們自行增減藥量的動機，是否受到「安慰劑效應」或更深層的心理需求影響？</li>
+                <li>在這個資訊爆炸的時代，社群媒體上的用藥心得，如何形塑我們的認知與行為？</li>
+            </ul>
+            <p>因為親身體會過實驗室中 `pipette` 的顫抖，他選擇了認知心理學與社會科學的道路，希望透過文獻回顧與質性訪談，將這些複雜的議題梳理清晰。這個網站，便是該專題研究的最終成果。</p>
             
             <!-- Section 2: Our Mission -->
             <h2>我們的使命</h2>
-            <p>我們的目標，是將那些複雜的研究論文、臨床數據、質性訪談，轉化為每一位 ADHD 夥伴都能看懂、感受並應用的內容。</p>
+            <p>我們的目標，是將那些充滿洞見、卻冰冷的學術研究，轉化為每一位 ADHD 夥伴都能看懂、感受並應用的內容。我們相信，當知識變得溫暖且易於親近，它才能真正地發揮力量。</p>
             
             <div class="mission-statement my-10">
                 <p class="text-xl font-bold mt-0 text-[#4A6B5B]">「我們致力於成為一座橋樑，<br>連接冰冷的科學證據，與溫暖的個人生命經驗。」</p>
@@ -102,12 +125,12 @@
                 <div class="text-center">
                     <div class="text-5xl mb-4">🔬</div>
                     <h3 class="mt-0 font-bold">科學實證</h3>
-                    <p class="text-base">本站所有核心內容，皆源自於您提供的、經同儕審查的學術研究。我們努力確保資訊的準確性與客觀性。</p>
+                    <p class="text-base">本站所有核心內容，皆源自於經同儕審查的學術研究。我們努力確保資訊的準確性與客觀性。</p>
                 </div>
                  <div class="text-center">
                     <div class="text-5xl mb-4">❤️</div>
                     <h3 class="mt-0 font-bold">同理之心</h3>
-                    <p class="text-base">我們理解 ADHD 夥伴在生活中面臨的挑戰與污名。因此，我們使用賦權、不帶批判的語言，希望能創造一個安全的資訊空間。</p>
+                    <p class="text-base">創辦人身為 ADHD 夥伴，我們理解在生活中面臨的挑戰與污名。因此，我們使用賦權、不帶批判的語言，希望能創造一個安全的資訊空間。</p>
                 </div>
                  <div class="text-center">
                     <div class="text-5xl mb-4">🎨</div>
@@ -122,7 +145,7 @@
             <p>您的每一個回饋，都是讓這座燈塔更明亮、照亮更多人的珍貴燃料。</p>
             
             <div class="text-center my-12">
-                <a href="mailto:hctsai@linux.com" class="bg-[#D9534F] text-white font-bold py-3 px-8 rounded-full text-lg hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-block">
+                <a href="contact.html" class="contact-button inline-block">
                     聯絡我們
                 </a>
             </div>
