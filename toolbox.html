@@ -3,231 +3,304 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>給自己的工具箱 - ADHD 衛教指南</title>
-
-    <!-- Puter.js：免 API Key 的 Gemini / LLM 代理 -->
+    <title>資源與實用工具箱｜ADHD 光譜</title>
+    
     <script src="https://js.puter.com/v2/"></script>
 
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- 字體 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-
-    <!-- Alpine.js -->
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-    <!-- 自訂樣式 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --bg-color: #0d1117;
-            --text-color: #e5e7eb;
-            --card-bg: rgba(31, 41, 55, 0.5);
-            --border-color: rgba(75, 85, 99, 0.5);
-            --ai-response-bg: rgba(17, 24, 39, 0.8);
-        }
-        html { scroll-behavior: smooth; }
         body {
-            font-family: 'Lexend', 'Noto Sans TC', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            overflow-x: hidden;
+            font-family: 'Manrope', 'Noto Sans TC', sans-serif;
+            background-color: #FEFDF8;
+            color: #3D352E;
         }
-        .particle-bg { position: fixed; inset: 0; background-color: var(--bg-color); background-image: radial-gradient(circle at 1px 1px, #374151 1px, transparent 0); background-size: 25px 25px; z-index: -1; }
-        .gradient-text { background: linear-gradient(90deg, #60a5fa, #a78bfa, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        .content-card { background-color: var(--card-bg); border: 1px solid var(--border-color); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-        [x-cloak] { display: none !important; }
-        .ai-response { background-color: var(--ai-response-bg); border-left: 4px solid #3b82f6; }
-        .ai-response p { margin-bottom: 0.75rem; }
-        .ai-response strong { color: #93c5fd; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} }
+        :focus-visible {
+            outline: 3px solid #6D9886;
+            outline-offset: 2px;
+            border-radius: 6px;
+        }
+        .prose-custom {
+            font-size: 1.125rem;
+            line-height: 1.75;
+        }
+        .prose-custom h2 {
+            font-size: 2.25rem;
+            font-weight: 800;
+            color: #A44A3F;
+            margin-top: 2.5em;
+            margin-bottom: 1em;
+            padding-bottom: 0.3em;
+            border-bottom: 2px solid #F2E1D9;
+        }
+        .prose-custom h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #3D352E;
+            margin-top: 2em;
+            margin-bottom: 0.8em;
+        }
+        .prose-custom strong {
+            color: #BF4040;
+            font-weight: 700;
+        }
+        .prose-custom a {
+            color: #6D9886;
+            text-decoration: underline;
+            text-decoration-thickness: 1px;
+            text-underline-offset: 4px;
+        }
+        .prose-custom a:hover {
+            color: #4A6B5B;
+        }
+        .resource-card {
+            background-color: white;
+            border: 1px solid #F2E1D9;
+            border-radius: 1rem;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .resource-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+        }
+        .disclaimer-box {
+            background-color: #FFFBEB; /* Light Yellow */
+            border: 2px dashed #FBBF24; /* Amber */
+            color: #92400E; /* Amber-darker text */
+        }
+        /* Loading Spinner */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #6D9886;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
-
-    <!-- AI Helper using Puter.js -->
-    <script>
-        function aiHelpers() {
-            return {
-                async getAiResponse(type, context, state) {
-                    state.isLoading = true;
-                    state.aiResponse = '';
-                    let prompt = '';
-                    switch (type) {
-                        case 'interpret_gad7':
-                            prompt = `請你扮演一位有同理心的心理衛教專家。使用者完成 GAD-7 焦慮量表後，得到了 ${context} 分。請根據這個分數，提供一個溫和且非診斷性的初步解釋。說明這個分數在臨床上通常對應的焦慮程度（例如：輕微、中度），並提醒使用者這「不是診斷」，只是一個參考，真正的評估還是需要和醫師或心理師討論。請避免使用過於肯定的語氣。`;
-                            break;
-                        case 'generate_diary':
-                            prompt = `請你扮演一位細心的生活教練，為一位正在進行藥物治療的ADHD患者，生成一則今天日期（${new Date().toLocaleDateString('zh-TW')}）的「用藥日記」範例。內容需包含：服藥時間、劑量、當天專注力與情緒的主觀感受（有好有壞）、記錄一個具體的副作用（如：食慾普通）、以及睡眠品質。請讓內容看起來真實且生活化。`;
-                            break;
-                        case 'draft_help_email':
-                            prompt = `請你扮演一位醫病關係溝通教練。請為一位初次想尋求諮商協助的ADHD患者，草擬一封給心理諮商所的預約諮詢 Email。信件風格需要誠懇、簡潔，內容需包含：簡單的自我介紹（已確診ADHD）、想預約諮詢的目的（例如：想學習與藥物共存的策略、處理藥物帶來的情緒困擾等），並詢問預約流程與費用。請讓這封信看起來友善且容易發送。`;
-                            break;
-                    }
-                    if (!prompt) { state.isLoading = false; return; }
-                    try {
-                        const resp = await puter.ai.chat(prompt, { model: 'google/gemini-2.0-flash-lite-001', stream: false });
-                        state.aiResponse = (resp?.message?.content || '').replace(/\n/g, '<br>');
-                    } catch (e) {
-                        console.error('LLM 調用失敗:', e);
-                        state.aiResponse = `<p class="text-red-400">AI 無法回應，請稍後再試。錯誤：${e.message}</p>`;
-                    } finally { state.isLoading = false; }
-                }
-            };
-        }
-    </script>
 </head>
 <body class="antialiased">
-    <div class="particle-bg"></div>
 
-    <header class="container mx-auto px-6 py-6 flex justify-between items-center sticky top-0 z-40 bg-opacity-80 backdrop-blur-md" style="background-color: var(--bg-color);">
-        <div class="text-lg font-bold">
-            <a href="index.html" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
-                返回探索之旅
-            </a>
+    <header class="sticky top-0 z-50 bg-[#FEFDF8]/80 backdrop-blur-lg">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+             <a href="index.html" class="flex items-center space-x-3">
+                 <svg width="40" height="40" viewBox="0 0 100 100">
+                     <circle cx="50" cy="50" r="45" fill="#F2E1D9"/>
+                     <path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/>
+                     <circle cx="35" cy="45" r="5" fill="#3D352E"/>
+                     <circle cx="65" cy="45" r="5" fill="#3D352E"/>
+                 </svg>
+                 <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
+             </a>
+             <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
         </div>
     </header>
 
-    <main class="container mx-auto px-6 py-12">
-        <section class="text-center mb-16">
-            <h1 class="text-4xl md:text-5xl font-bold gradient-text mb-4">給自己的工具箱</h1>
-            <p class="max-w-3xl mx-auto text-lg text-gray-300">了解知識很重要，但學會如何觀察自己、記錄生活、尋求協助，是讓這趟旅程更順利的關鍵。這裡提供一些實用工具，幫助你成為更了解自己的專家。</p>
-        </section>
-
-        <!-- 卡片列表 -->
-        <div class="space-y-8 max-w-4xl mx-auto" x-data="aiHelpers()">
-
-            <!-- 卡片一：自我檢測量表 -->
-            <div x-data="{ open: false, aiResponse: '', isLoading: false, gad7: [], totalScore: 0, showResult: false, calculateScore() { this.totalScore = this.gad7.reduce((a, b) => Number(a) + Number(b), 0); this.showResult = true; this.getAiResponse('interpret_gad7', this.totalScore, this); } }" class="content-card rounded-lg overflow-hidden">
-                <button @click="open = !open" class="w-full text-left p-6 flex justify-between items-center">
-                    <h3 class="text-xl font-bold">工具一：自我檢測量表</h3>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform flex-shrink-0" :class="{'rotate-180': open}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
-                </button>
-                <div x-show="open" x-collapse x-cloak class="px-6 pb-6 text-gray-300 border-t border-gray-700">
-                    <p class="mt-4 mb-4">定期使用量表，能幫助你量化自己的身心狀態，並在回診時提供醫師更具體的參考。<strong>（注意：這不是診斷，僅為自我觀察工具）</strong></p>
-                    
-                    <div class="bg-gray-900 p-4 rounded-lg">
-                        <h4 class="font-bold text-lg mb-2">廣泛性焦慮量表 (GAD-7) - 互動測試</h4>
-                        <p class="text-sm text-gray-400 mb-4">在過去兩週，你多常受到以下問題困擾？</p>
-                        <div class="space-y-4">
-                            <template x-for="(question, index) in ['感覺緊張、不安或煩躁','不能停止或控制憂慮','過份地擔心許多不同事情','很難放鬆下來','心神不寧，以致坐立難安','變得容易發火或易怒','感覺好像將有可怕的事情發生']" :key="index">
-                                <div class="text-sm">
-                                    <p x-text="`${index + 1}. ${question}`"></p>
-                                    <div class="flex flex-wrap gap-x-4 gap-y-2 mt-2">
-                                        <label class="flex items-center"><input type="radio" :name="`q${index}`" x-model="gad7[index]" value="0" class="mr-1"> 完全沒有(0)</label>
-                                        <label class="flex items-center"><input type="radio" :name="`q${index}`" x-model="gad7[index]" value="1" class="mr-1"> 幾天(1)</label>
-                                        <label class="flex items-center"><input type="radio" :name="`q${index}`" x-model="gad7[index]" value="2" class="mr-1"> 超過一半時間(2)</label>
-                                        <label class="flex items-center"><input type="radio" :name="`q${index}`" x-model="gad7[index]" value="3" class="mr-1"> 幾乎每天(3)</label>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                        <button @click="calculateScore()" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm" :disabled="gad7.length < 7">計算總分 & AI 解說</button>
-                        <div x-show="showResult" class="mt-4">
-                            <p>你的總分是：<strong x-text="totalScore" class="text-xl"></strong></p>
-                            <div x-show="isLoading" class="mt-2 flex items-center gap-3"><div class="loader"></div><span>AI 解說生成中...</span></div>
-                            <div x-show="aiResponse" x-cloak class="mt-2 p-4 rounded-lg ai-response" x-html="aiResponse"></div>
-                        </div>
-                    </div>
-
-                    <div class="mt-6">
-                         <h4 class="font-bold text-lg mb-2">其他推薦量表</h4>
-                         <ul class="list-disc list-inside text-sm space-y-2">
-                             <li><strong class="text-white">睡眠品質 (PSQI):</strong> 涵蓋多面向的睡眠狀況，適合每月評估。</li>
-                             <li><strong class="text-white">衝動控制 (BIS-11):</strong> 經典的衝動性評估量表，追蹤治療前後的變化。</li>
-                         </ul>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 卡片二：用藥日記 -->
-            <div x-data="{ open: false, aiResponse: '', isLoading: false }" class="content-card rounded-lg overflow-hidden">
-                <button @click="open = !open" class="w-full text-left p-6 flex justify-between items-center">
-                    <h3 class="text-xl font-bold">工具二：我的用藥日記</h3>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform flex-shrink-0" :class="{'rotate-180': open}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
-                </button>
-                <div x-show="open" x-collapse x-cloak class="px-6 pb-6 text-gray-300 border-t border-gray-700">
-                    <p class="mt-4 mb-4">人的記憶不可靠，但紀錄是客觀的。一份好的用藥日記，是回診時與醫師溝通最有力的工具。它能幫助你和醫生一起找到最適合你的治療方案。</p>
-                    <div class="bg-gray-900 p-4 rounded-lg text-sm">
-                        <h4 class="font-semibold text-white mb-2">日記範本建議欄位：</h4>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left">
-                                <thead class="border-b border-gray-700"><tr><th class="py-2 pr-2">日期</th><th class="py-2 pr-2">服藥時間/劑量</th><th class="py-2 pr-2">專注力(1-5分)</th><th class="py-2 pr-2">情緒(1-5分)</th><th class="py-2 pr-2">副作用紀錄</th><th class="py-2">睡眠品質(1-5分)</th></tr></thead>
-                                <tbody><tr><td class="py-2 pr-2 text-gray-400">範例...</td><td class="py-2 pr-2 text-gray-400">範例...</td><td class="py-2 pr-2 text-gray-400">範例...</td><td class="py-2 pr-2 text-gray-400">範例...</td><td class="py-2 pr-2 text-gray-400">範例...</td><td class="py-2 text-gray-400">範例...</td></tr></tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <!-- AI 工具區 -->
-                    <div class="mt-6 pt-4 border-t border-gray-700">
-                        <h4 class="text-lg font-bold mb-3 flex items-center"><span class="mr-2 text-2xl">✨</span> AI 探索工具</h4>
-                        <div class="flex flex-wrap gap-4">
-                           <button @click="getAiResponse('generate_diary', '', $data)" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">AI 幫我產生今日日記範例</button>
-                        </div>
-                        <div x-show="isLoading" class="mt-4 flex items-center gap-3"><div class="loader"></div><span>AI 思考中...</span></div>
-                        <div x-show="aiResponse" x-cloak class="mt-4 p-4 rounded-lg ai-response" x-html="aiResponse"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 卡片三：在地資源 -->
-             <div x-data="{ open: false, aiResponse: '', isLoading: false }" class="content-card rounded-lg overflow-hidden">
-                <button @click="open = !open" class="w-full text-left p-6 flex justify-between items-center">
-                    <h3 class="text-xl font-bold">工具三：台灣在地資源</h3>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform flex-shrink-0" :class="{'rotate-180': open}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
-                </button>
-                <div x-show="open" x-collapse x-cloak class="px-6 pb-6 text-gray-300 border-t border-gray-700">
-                    <p class="mt-4 mb-4">你不是一個人。台灣有許多組織和社群，提供給ADHD患者與家庭支持、資訊和溫暖的交流。踏出尋求協助的第一步，非常勇敢。</p>
-                    <div class="space-y-4 text-sm">
-                        <div>
-                            <h4 class="font-semibold text-white">病友與家庭支持協會</h4>
-                            <ul class="list-disc list-inside mt-1 space-y-1">
-                                <li><a href="https://www.adhd.org.tw/" target="_blank" class="text-blue-400 hover:underline">社團法人台灣赤子心過動症協會</a> - 歷史悠久，提供家長支持、講座與營隊。</li>
-                            </ul>
-                        </div>
-                        <div>
-                            <h4 class="font-semibold text-white">線上社群</h4>
-                            <ul class="list-disc list-inside mt-1 space-y-1">
-                                <li>Facebook 上有許多活躍的私密社團，如「<a href="http://facebook.com/groups/ADHDTW" target="_blank" class="text-blue-400 hover:underline">台灣ADHD(注意力不足過動症)交流園地</a>」，提供同儕經驗分享（請注意資訊需審慎判讀）。</li>
-                            </ul>
-                        </div>
-                        <div>
-                            <h4 class="font-semibold text-white">心理諮商資源</h4>
-                            <ul class="list-disc list-inside mt-1 space-y-1">
-                                <li>各地區心理衛生中心、大專院校諮商中心，以及自費心理諮商所，皆可尋求專業心理師的協助。</li>
-                            </ul>
-                        </div>
-                    </div>
-                    <!-- AI 工具區 -->
-                    <div class="mt-6 pt-4 border-t border-gray-700">
-                        <h4 class="text-lg font-bold mb-3 flex items-center"><span class="mr-2 text-2xl">✨</span> AI 探索工具</h4>
-                        <div class="flex flex-wrap gap-4">
-                           <button @click="getAiResponse('draft_help_email', '', $data)" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">AI 幫我草擬求助信</button>
-                        </div>
-                        <div x-show="isLoading" class="mt-4 flex items-center gap-3"><div class="loader"></div><span>AI 思考中...</span></div>
-                        <div x-show="aiResponse" x-cloak class="mt-4 p-4 rounded-lg ai-response" x-html="aiResponse"></div>
-                    </div>
-                </div>
-            </div>
+    <main class="container mx-auto px-6 py-12 md:py-20">
+        <article class="max-w-4xl mx-auto prose-custom">
             
-        </div>
+            <header class="mb-12">
+                <p class="text-lg font-bold text-[#6D9886]">生活與策略 &gt; 實用資源</p>
+                <h1 class="text-4xl md:text-5xl font-extrabold leading-tight text-[#3D352E] mt-2 mb-4">
+                    資源與實用工具箱：<br>你的 ADHD 生活指南
+                </h1>
+                <p class="text-xl text-gray-600">探索的路上，你需要一些地圖和工具。這裡彙整了能幫助你更了解自己、並尋求外部支持的資源。</p>
+            </header>
+            
+            <h2>更了解自己：自我觀察量表</h2>
+            <p>量表不是為了給你貼標籤，而是像一面鏡子，幫助你觀察自己特定面向的狀態。在你感覺困惑時，它們可以提供一個客觀的參考，也是與醫師溝通時很好的起點。</p>
+            
+            <div class="disclaimer-box p-6 rounded-lg my-8 text-center">
+                <p class="font-bold text-lg">⚠️ 重要提醒</p>
+                <p class="mt-2">以下量表<strong>僅供自我參考與教育目的</strong>，其結果<strong>不能、也不應</strong>取代任何專業醫療人員的診斷。如果你對自己的身心狀況有疑問，請務必尋求合格醫師或心理師的協助。</p>
+            </div>
+
+            <div class="space-y-6 my-10">
+                 <div class="resource-card p-6">
+                     <h3 class="mt-0 font-bold">衝動控制：巴拉特衝動量表 (BIS-11)</h3>
+                     <p>這是一個經典的量表，用來評估衝動行為的不同面向，例如「想到就做」（運動衝動）或「做事不經思考」（非計劃衝動）。它能幫助你了解自己的衝動模式。台灣已有通用的中文版本。</p>
+                 </div>
+                 <div class="resource-card p-6">
+                     <h3 class="mt-0 font-bold">焦慮程度：廣泛性焦慮量表 (GAD-7)</h3>
+                     <p>ADHD 常與焦慮共存。這個量表只有 7 題，非常簡潔，可以快速篩檢出你最近的焦慮指數有多高，適合作為定期的情緒溫度計。</p>
+                 </div>
+                 </div>
+
+            <h2>尋求專業協助：台灣就醫指南</h2>
+            <p>決定尋求幫助，是這趟旅程中最勇敢的一步。在台灣，你可以透過以下幾個方向來找到適合你的資源。</p>
+            
+            <ul class="list-none pl-0 space-y-6 mt-8">
+                <li class="bg-white p-6 rounded-xl shadow-sm">
+                    <h3 class="mt-0 font-bold">第一站：身心科/精神科門診</h3>
+                    <p>成人 ADHD 的診斷主要由身心科（精神科）醫師進行。你可以從住家附近的診所或區域醫院開始。許多醫療院所網站會特別標示醫師的專長，可以尋找專精於「成人ADHD」或「兒童青少年精神醫學」的醫師。</p>
+                </li>
+                 <li class="bg-white p-6 rounded-xl shadow-sm">
+                    <h3 class="mt-0 font-bold">如何準備第一次看診？</h3>
+                    <p>為了讓溝通更有效率，你可以事先準備：</p>
+                    <ul class="list-disc pl-6 mt-2 space-y-1">
+                        <li>條列出你從以前到現在，在生活、學業、工作或人際上遇到的具體困難。</li>
+                        <li>如果有做過上述的自我評估量表，可以帶著結果和醫師討論。</li>
+                        <li>如果可能，可以詢問家人你小時候是否有類似的狀況。</li>
+                    </ul>
+                     
+                    <div class="mt-8 border-t-2 border-dashed border-gray-200 pt-8" id="ai-note-generator">
+                        <h4 class="text-xl font-bold text-[#A44A3F] flex items-center">
+                            <span class="text-3xl mr-3">✨</span>
+                            AI 陪我寫看診筆記
+                        </h4>
+                        <p class="mt-2 text-base">覺得腦袋一團亂，不知從何說起嗎？把所有煩惱都倒在這裡，AI 會像個貼心的助理，幫你整理成一份有條理的筆記，讓你帶去給醫生看。</p>
+                        
+                        <div class="mt-4">
+                            <textarea id="userInput" rows="8" class="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：工作上常常忘東忘西，老闆交代的事情轉頭就忘。跟另一半常為小事吵架，因為我沒在聽... 睡眠很差，半夜三點還在滑手機..."></textarea>
+                        </div>
+                        
+                        <button id="generateButton" class="mt-4 bg-[#D9534F] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
+                            <span id="buttonText">幫我整理筆記</span>
+                            <div id="loader" class="loader ml-3 hidden"></div>
+                        </button>
+
+                        <div id="aiResult" class="mt-6 bg-green-50 p-6 rounded-lg border-l-4 border-green-500 hidden">
+                            <h4 class="font-bold text-lg text-green-800">這是為你整理好的看診筆記：</h4>
+                            <div id="resultContent" class="mt-2 text-gray-700 whitespace-pre-wrap"></div>
+                            <button id="copyButton" class="mt-4 text-sm bg-gray-200 text-gray-700 py-1 px-3 rounded-md hover:bg-gray-300">複製內容</button>
+                        </div>
+                         <div id="errorMessage" class="mt-6 bg-red-50 p-4 rounded-lg text-red-700 hidden"></div>
+                    </div>
+                    </li>
+            </ul>
+
+            <h2>給身邊的你：家人、伴侶與朋友的支持指南</h2>
+            <p>作為 ADHD 夥伴身邊最重要的人，你的理解與支持，是比任何藥物都更有效的穩定力量。然而，「對的支持」需要方法。以下是一些基於研究的建議。</p>
+            
+            <div class="grid md:grid-cols-2 gap-6 my-10">
+                <div class="bg-[#F0F5F2] p-6 rounded-xl">
+                    <h3 class="mt-0 font-bold text-[#4A6B5B]">1. 成為「外接硬碟」，而不是「鬧鐘」</h3>
+                    <p class="text-base">ADHD 的大腦不是記不住，而是「提取」資訊比較困難。與其不斷地提醒「你忘記...了嗎？」，不如試著用溫和、沒有情緒的方式，一起建立外部提醒系統，例如共用行事曆、便利貼牆、固定的家庭訊息版。成為他可靠的備忘錄，而不是刺耳的提醒聲。</p>
+                </div>
+                <div class="bg-[#F0F5F2] p-6 rounded-xl">
+                    <h3 class="mt-0 font-bold text-[#4A6B5B]">2. 聚焦「優勢」，而非「缺陷」</h3>
+                    <p class="text-base">ADHD 夥伴通常充滿創意、熱情、對感興趣的事物有無比的專注力（過度專注 Hyperfocus）。看見並讚美這些優點，讓他知道你愛的是完整的他，不只是那個「沒有犯錯」的他。當他搞砸事情時，先給予情緒支持，再一起思考如何解決。</p>
+                </div>
+            </div>
+
+             <h2>旅程的下一步</h2>
+            <p>拿著這些地圖和工具，你已經比昨天的自己，又更往前一步了。記住，尋求幫助是強大的象徵。無論你現在在哪個階段，都請溫柔地對待自己，因為你正在做的，是一件非常了不起的事。</p>
+
+        </article>
     </main>
 
-    <footer class="text-center mt-16 md:mt-24 py-8 px-6 border-t border-gray-800">
-        <div class="container mx-auto">
-             <p class="mb-4 text-sm text-gray-500">AI 生成內容僅供參考，不能取代專業醫療建議。所有內容均基於本頁面提供的公開研究資料生成。</p>
-            <p class="mb-4 text-gray-400">&copy; 2025 ADHD 神經探索地圖. </p>
-            <div class="flex justify-center items-center space-x-2 text-sm text-gray-500">
-                <a href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank" class="hover:text-gray-300">
-                    <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" style="height: 1.2em; display: inline-block; vertical-align: middle;" alt="Creative Commons">
-                    <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" style="height: 1.2em; display: inline-block; vertical-align: middle;" alt="Attribution">
-                    <img src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" style="height: 1.2em; display: inline-block; vertical-align: middle;" alt="Share Alike">
-                </a>
-                <span>本網站內容採用 <a href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank" class="underline hover:text-gray-300">姓名標示-相同方式分享 4.0 國際</a> 授權條款釋出。</span>
-            </div>
+    <footer class="bg-[#3D352E] text-white mt-20">
+        <div class="container mx-auto px-6 py-12 text-center">
+            <p class="text-gray-300">本頁資訊基於截至 2025 年之公開科學文獻及專家建議整理，僅供教育參考。</p>
+            <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
         </div>
     </footer>
-    
+
+<script>
+    const generateButton = document.getElementById('generateButton');
+    const buttonText = document.getElementById('buttonText');
+    const loader = document.getElementById('loader');
+    const userInput = document.getElementById('userInput');
+    const aiResult = document.getElementById('aiResult');
+    const resultContent = document.getElementById('resultContent');
+    const errorMessage = document.getElementById('errorMessage');
+    const copyButton = document.getElementById('copyButton');
+
+    generateButton.addEventListener('click', async () => {
+        const inputText = userInput.value.trim();
+        if (!inputText) {
+            errorMessage.textContent = '請先輸入你的想法喔！';
+            errorMessage.classList.remove('hidden');
+            return;
+        }
+
+        // --- UI updates for loading state ---
+        errorMessage.classList.add('hidden');
+        aiResult.classList.add('hidden');
+        generateButton.disabled = true;
+        buttonText.textContent = '整理中...';
+        loader.classList.remove('hidden');
+
+        // --- 準備給 AI 的指令 (Prompt) ---
+        const prompt = `你是一位溫暖、有同理心的心理健康助理。一位可能患有ADHD的使用者正在準備他的第一次身心科看診，他寫下了這些雜亂的筆記，請你幫他整理成一份有條理、清晰、點列式的看診筆記，方便他與醫師溝通。
+
+請將內容分類，使用以下標題：
+- **【主要困擾與挑戰】**
+- **【對日常生活的影響（工作/學業/人際）】**
+- **【情緒與睡眠狀況】**
+- **【我想詢問醫師的問題】** (如果使用者有提到問題的話)
+
+請直接輸出整理好的筆記內容，語氣客觀中立，僅是整理而非給予建議或詮釋。請務必使用繁體中文和 Markdown 的點列格式。
+
+使用者的雜亂筆記如下：
+---
+${inputText}
+---
+`;
+
+        try {
+            // ✅ 步驟 2: 將 fetch 呼叫替換為 puter.ai.chat()
+            const response = await puter.ai.chat(prompt, {
+              model: 'google/gemini-2.0-flash-lite-001', // 使用免費模型
+              stream: false // 使用非串流模式，一次性取得結果
+            });
+            
+            // 從 Puter.js 的回應中取得內容
+            const generatedText = response?.message?.content;
+
+            if (!generatedText) {
+                throw new Error("AI 回應的格式不正確或為空。");
+            }
+            
+            // --- 顯示結果 (這部分邏輯不變) ---
+            // 將 Markdown 格式轉換為 HTML，以便在頁面上正確顯示
+            let htmlResult = generatedText
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // 粗體
+                .replace(/-\s(.*?)(?=\n-|\n\n|$)/g, '<li class="ml-4 list-disc">$1</li>') // 項目符號
+                .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>'); // 將 li 包在 ul 裡
+
+            resultContent.innerHTML = htmlResult;
+            aiResult.classList.remove('hidden');
+
+        } catch (error) {
+            console.error('Puter.js AI Error:', error);
+            errorMessage.textContent = '整理筆記時發生錯誤，請檢查網路連線或稍後再試一次。';
+            errorMessage.classList.remove('hidden');
+        } finally {
+            // --- 重置 UI 狀態 (這部分邏輯不變) ---
+            generateButton.disabled = false;
+            buttonText.textContent = '幫我整理筆記';
+            loader.classList.add('hidden');
+        }
+    });
+
+    // --- 複製到剪貼簿功能 (這部分邏輯不變) ---
+    copyButton.addEventListener('click', () => {
+        const textToCopy = resultContent.innerText; // 使用 innerText 來取得純文字
+        const textArea = document.createElement('textarea');
+        textArea.value = textToCopy;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            copyButton.textContent = '已複製！';
+            setTimeout(() => {
+                copyButton.textContent = '複製內容';
+            }, 2000);
+        } catch (err) {
+            console.error('無法複製文字: ', err);
+            copyButton.textContent = '複製失敗';
+        }
+        document.body.removeChild(textArea);
+    });
+
+</script>
 </body>
 </html>
