@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>與ADHD共處的生活策略｜ADHD 光譜</title>
+
+    <script src="https://js.puter.com/v2/"></script>
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -49,9 +52,6 @@
             text-decoration-thickness: 1px;
             text-underline-offset: 4px;
         }
-        .prose-custom a:hover {
-            color: #4A6B5B;
-        }
         .strategy-card {
             background-color: white;
             border-radius: 1rem;
@@ -71,39 +71,70 @@
             background-color: #F0F5F2;
             border: 2px dashed #6D9886;
         }
+        /* Loading Spinner */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #6D9886;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="antialiased">
 
-    <!-- Header -->
     <header class="sticky top-0 z-50 bg-[#FEFDF8]/80 backdrop-blur-lg">
         <div class="container mx-auto px-6 py-4 flex justify-between items-center">
              <a href="index.html" class="flex items-center space-x-3">
-                <svg width="40" height="40" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="45" fill="#F2E1D9"/>
-                    <path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/>
-                    <circle cx="35" cy="45" r="5" fill="#3D352E"/>
-                    <circle cx="65" cy="45" r="5" fill="#3D352E"/>
-                </svg>
-                <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
-            </a>
-            <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
+                 <svg width="40" height="40" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="#F2E1D9"/><path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/><circle cx="35" cy="45" r="5" fill="#3D352E"/><circle cx="65" cy="45" r="5" fill="#3D352E"/></svg>
+                 <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
+             </a>
+             <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
         </div>
     </header>
 
-    <!-- Main Content -->
     <main class="container mx-auto px-6 py-12 md:py-20">
         <article class="max-w-4xl mx-auto prose-custom">
             
             <header class="mb-12">
-                <p class="text-lg font-bold text-[#6D9886]">生活與策略</p>
+                <p class="text-lg font-bold text-[#6D9886]">生活與策略 &gt; 日常應對</p>
                 <h1 class="text-4xl md:text-5xl font-extrabold leading-tight text-[#3D352E] mt-2 mb-4">
-                    與 ADHD 共處的生活策略：<br>打造你的大腦友善日常
+                    與ADHD共處的生活策略：<br>打造你的大腦友善日常
                 </h1>
                 <p class="text-xl text-gray-600">技巧不是要你變成另一個人，而是讓你更有力氣做自己。這裡沒有標準答案，只有一些你可以試試看的工具。</p>
             </header>
             
-            <!-- Section 1: Work & Study -->
+            <section id="ai-task-slicer" class="my-16">
+                 <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border-t-4 border-[#A44A3F]">
+                     <h2 class="mt-0 text-3xl font-bold flex items-center">
+                         <span class="text-4xl mr-3">✨</span>
+                         AI 陪我拆解任務
+                     </h2>
+                     <p class="mt-2 text-base">覺得任務大到像座山，完全不知從何爬起嗎？把那座「山」的名字寫下來，AI 教練會陪你把它變成一堆可以輕鬆撿起的小石頭。</p>
+                     
+                     <div class="mt-6">
+                         <label for="taskInput" class="block font-semibold mb-2">寫下讓你不知所措的任務：</label>
+                         <input type="text" id="taskInput" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：「寫一份五千字的期末報告」或「把亂成一團的房間整理好」">
+                     </div>
+                     
+                     <button id="generateButton" class="mt-4 bg-[#D9534F] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
+                         <span id="buttonText">幫我制定策略</span>
+                         <div id="loader" class="loader ml-3 hidden"></div>
+                     </button>
+
+                     <div id="aiResult" class="mt-6 hidden">
+                         <div id="resultContent" class="p-6 bg-green-50 rounded-lg border-l-4 border-green-600 text-gray-800 space-y-4">
+                             </div>
+                     </div>
+                     <div id="errorMessage" class="mt-6 bg-red-50 p-4 rounded-lg text-red-700 hidden"></div>
+                 </div>
+            </section>
+            
             <h2>工作與學習的生存技巧</h2>
             <p>面對排山倒海的任務和截止日期，感覺就像在玩一場「極限挑戰」。這裡有一些方法，可以幫助你馴服混亂，把「拖延怪獸」變成「行動夥伴」。</p>
 
@@ -126,7 +157,6 @@
                 </div>
             </div>
 
-            <!-- Section 2: Interpersonal Relationships -->
             <h2>人際關係的潤滑劑</h2>
             <p>與人互動有時就像解一道複雜的謎題。我們不是不關心，只是大腦的運作方式讓溝通和理解有時會「卡關」。</p>
 
@@ -149,7 +179,6 @@
                 </div>
             </div>
 
-            <!-- Section 3: Emotional Regulation -->
             <h2>情緒調節的溫柔練習</h2>
             <p>情緒就像天氣，有時晴空萬里，有時狂風暴雨。ADHD 的天氣預報可能特別不準。學會觀察和安撫自己的情緒，是找回內心平靜的關鍵。</p>
             
@@ -171,8 +200,7 @@
                 </div>
             </div>
 
-            <!-- Final thought -->
-             <div class="final-thought-box p-8 rounded-2xl my-16 text-center">
+            <div class="final-thought-box p-8 rounded-2xl my-16 text-center">
                 <h3 class="mt-0 font-bold text-2xl">最後，請對自己溫柔一點</h3>
                 <p class="mt-4">這些策略和工具，沒有一個是「必須做到」的。它們是一個自助餐，請夾取你今天想吃的、吃得下的菜色就好。</p>
                 <p>最重要的策略，永遠是<strong>自我關懷</strong>。允許自己有不完美的日子，慶祝每一個微小的進步。你正在學習和你獨特而富有創造力的大腦共舞，這本身就是一趟了不起的旅程。</p>
@@ -181,13 +209,85 @@
         </article>
     </main>
 
-    <!-- Footer -->
     <footer class="bg-[#3D352E] text-white mt-20">
         <div class="container mx-auto px-6 py-12 text-center">
             <p class="text-gray-300">本頁資訊基於現行心理健康實務與專家建議整理，僅供教育參考。</p>
             <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
         </div>
     </footer>
+<script>
+    const generateButton = document.getElementById('generateButton');
+    const buttonText = document.getElementById('buttonText');
+    const loader = document.getElementById('loader');
+    const taskInput = document.getElementById('taskInput');
+    const aiResult = document.getElementById('aiResult');
+    const resultContent = document.getElementById('resultContent');
+    const errorMessage = document.getElementById('errorMessage');
 
+    generateButton.addEventListener('click', async () => {
+        const inputText = taskInput.value.trim();
+        if (!inputText) {
+            errorMessage.textContent = '請先輸入一個讓你困擾的任務喔！';
+            errorMessage.classList.remove('hidden');
+            return;
+        }
+
+        errorMessage.classList.add('hidden');
+        aiResult.classList.add('hidden');
+        generateButton.disabled = true;
+        buttonText.textContent = '思考中...';
+        loader.classList.remove('hidden');
+
+        const prompt = `你是一位非常有經驗且溫暖的 ADHD 教練。你的專長是幫助人們將巨大、可怕的任務，分解成微小、無壓力、可立即執行的步驟。
+
+請根據使用者提供的任務，為他量身打造一份「ADHD 友善的行動計畫」。
+
+計畫需包含以下幾個部分，並用粗體標示標題：
+1. **第一步，先深呼吸：** 用一句有同理心的話，承認這個任務很困難，安撫使用者的焦慮。
+2. **清空大腦，準備工作區：** 建議使用者如何準備物理環境與心理狀態。
+3. **拆解成「小石頭」步驟：** 這是最重要的部分。將大任務分解成 5-7 個非常具體、動詞開頭、微小到幾乎不可能失敗的步驟。
+4. **啟動你的「番茄鐘」：** 建議一個工作/休息的時間循環（例如 25 分鐘工作，5 分鐘休息）。
+5. **設定一個「小獎勵」：** 完成後可以給自己什麼樣的立即獎勵。
+
+請用支持、鼓勵且充滿活力的語氣，以繁體中文回答。
+
+使用者的任務是：「${inputText}」
+`;
+
+        try {
+            // ✅ 步驟 2: 將 fetch 呼叫替換為 puter.ai.chat()
+            const response = await puter.ai.chat(prompt, {
+                model: 'google/gemini-2.0-flash-lite-001', // 使用免費模型
+                stream: false // 使用非串流模式
+            });
+
+            // 從 Puter.js 的回應中取得內容
+            const generatedText = response?.message?.content;
+
+            if (!generatedText) {
+                throw new Error("AI 回應的格式不正確或內容為空。");
+            }
+            
+            // --- 顯示結果 (這部分格式化邏輯不變) ---
+            // 將 AI 回傳的 Markdown 粗體 **文字** 轉換成帶有樣式的 H4 標題
+            let htmlResult = generatedText
+                .replace(/\*\*(.*?)\*\*/g, '<h4 class="font-bold text-lg text-green-800 mt-4 mb-2">$1</h4>')
+                .replace(/(\r\n|\n|\r)/g, "<br>");
+
+            resultContent.innerHTML = htmlResult;
+            aiResult.classList.remove('hidden');
+
+        } catch (error) {
+            console.error('Puter.js AI Error:', error);
+            errorMessage.textContent = '哎呀，連線有點問題，請稍後再試一次。';
+            errorMessage.classList.remove('hidden');
+        } finally {
+            // --- 重置 UI 狀態 (這部分邏輯不變) ---
+            generateButton.disabled = false;
+            buttonText.textContent = '幫我制定策略';
+            loader.classList.add('hidden');
+        }
+    });
+</script>
 </body>
 </html>
