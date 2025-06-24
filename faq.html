@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>常見問題 FAQ｜ADHD 光譜</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
+    
+    <script src="https://js.puter.com/v2/"></script>
+    
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        body {
+            font-family: 'Manrope', 'Noto Sans TC', sans-serif;
+            background-color: #FEFDF8;
+            color: #3D352E;
+        }
+        :focus-visible {
+            outline: 3px solid #6D9886;
+            outline-offset: 2px;
+            border-radius: 6px;
+        }
+        .prose-custom {
+            font-size: 1.125rem;
+            line-height: 1.75;
+        }
+        .prose-custom h2 {
+            font-size: 2.25rem;
+            font-weight: 800;
+            color: #A44A3F;
+            margin-top: 2.5em;
+            margin-bottom: 1em;
+            padding-bottom: 0.3em;
+            border-bottom: 2px solid #F2E1D9;
+        }
+        .prose-custom strong {
+            color: #BF4040;
+            font-weight: 700;
+        }
+        .prose-custom a {
+            color: #6D9886;
+            text-decoration: underline;
+        }
+        .faq-item {
+            background-color: white;
+            border: 1px solid #F2E1D9;
+            border-radius: 0.75rem;
+            margin-bottom: 1rem;
+            transition: box-shadow 0.2s ease-in-out;
+        }
+        .faq-item:hover {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+        }
+        .faq-question {
+            cursor: pointer;
+            padding: 1.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 700;
+            font-size: 1.125rem;
+        }
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease-out, padding 0.4s ease-out;
+            padding: 0 1.25rem;
+        }
+        .faq-answer p, .faq-answer ul {
+            margin-bottom: 1em;
+        }
+         /* Loading Spinner */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #6D9886;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <header class="sticky top-0 z-50 bg-[#FEFDF8]/80 backdrop-blur-lg">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+             <a href="index.html" class="flex items-center space-x-3">
+                 <svg width="40" height="40" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="#F2E1D9"/><path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/><circle cx="35" cy="45" r="5" fill="#3D352E"/><circle cx="65" cy="45" r="5" fill="#3D352E"/></svg>
+                 <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
+             </a>
+             <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-6 py-12 md:py-20">
+        <article class="max-w-4xl mx-auto prose-custom">
+            
+            <header class="mb-12 text-center">
+                <p class="text-lg font-bold text-[#6D9886]">常見問題</p>
+                <h1 class="text-4xl md:text-5xl font-extrabold leading-tight text-[#3D352E] mt-2 mb-4">你的 ADHD 隨身問答手冊</h1>
+                <p class="text-xl text-gray-600">這裡集結了大家最想知道的問題。點擊問題，就能看到基於科學證據的解答。</p>
+            </header>
+            
+            <div x-data="{ active: 1 }">
+                <section>
+                    <h2>關於診斷與症狀</h2>
+                    <div class="faq-item">
+                        <div class="faq-question" @click="active = (active === 1 ? null : 1)">
+                            <span>Q1：我怎麼知道自己是不是成人 ADHD？</span>
+                            <svg class="w-6 h-6 transform transition-transform" :class="{'rotate-180': active === 1}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </div>
+                        <div class="faq-answer" x-show="active === 1" x-collapse>
+                            <div class="pt-4 pb-5">
+                                <p>成人 ADHD 的樣貌比兒童更多元。除了典型的分心、靜不下來，你可能更常感覺到：<strong>生活混亂</strong>（常找不到東西、錯過死線）、<strong>情緒調節困難</strong>（容易為小事暴怒或感到極度挫折）、<strong>難以啟動或完成任務</strong>（即使知道很重要），以及<strong>人際關係上的摩擦</strong>。如果你覺得這些描述長期且嚴重地影響了你的生活，建議尋求<a href="resources.html">專業評估</a>。</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h2>關於藥物治療</h2>
+                     <div class="faq-item">
+                        <div class="faq-question" @click="active = (active === 3 ? null : 3)">
+                            <span>Q3：吃利他能 (Methylphenidate) 會不會上癮？</span>
+                            <svg class="w-6 h-6 transform transition-transform" :class="{'rotate-180': active === 3}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </div>
+                        <div class="faq-answer" x-show="active === 3" x-collapse>
+                             <div class="pt-4 pb-5">
+                                <p>這是最多人擔心的問題。根據多份大型統合分析研究（涵蓋數萬人），在醫師指導下，為了「治療」而規律服藥，<strong>並不會增加</strong>未來物質成癮的風險。真正有風險的是「非醫療用途」的濫用（例如為了熬夜或快感而大量使用）。事實上，因為藥物改善了衝動控制，部分台灣及國外的在地研究反而發現，適當治療能<strong>降低</strong>患者因衝動而接觸其他成癮物質或發生意外的機率。</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <section id="ai-ask" class="mt-16">
+                 <h2>找不到你的問題嗎？</h2>
+                 <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border-t-4 border-[#A44A3F]">
+                     <h3 class="mt-0 text-2xl font-bold flex items-center">
+                         <span class="text-3xl mr-3">✨</span>
+                         問問 AI 助理
+                     </h3>
+                     <p class="mt-2 text-base text-gray-600">你可以直接在這裡輸入你的問題。AI 助理會根據現有的科學知識，提供一個溫暖且具參考性的回答。</p>
+                     
+                     <div class="mt-6">
+                         <textarea id="userInput" rows="4" class="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：ADHD 跟睡眠的關係是什麼？或者，藥物會如何影響我的情緒？"></textarea>
+                     </div>
+                     
+                     <button id="generateButton" class="mt-4 bg-[#D9534F] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
+                         <span id="buttonText">送出提問</span>
+                         <div id="loader" class="loader ml-3 hidden"></div>
+                     </button>
+
+                     <div id="aiResult" class="mt-6 hidden">
+                         <div id="resultContent" class="p-6 bg-green-50 rounded-lg border-l-4 border-green-600 text-gray-800 space-y-4">
+                             </div>
+                     </div>
+                     <div id="errorMessage" class="mt-6 bg-red-50 p-4 rounded-lg text-red-700 hidden"></div>
+                 </div>
+            </section>
+        </article>
+    </main>
+
+    <footer class="bg-[#3D352E] text-white mt-20">
+        <div class="container mx-auto px-6 py-12 text-center">
+            <p class="text-gray-300">本頁資訊基於現行科學研究與臨床實務整理，僅供教育參考。</p>
+            <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
+        </div>
+    </footer>
+<script>
+    // --- AI Feature Logic ---
+    const generateButton = document.getElementById('generateButton');
+    const buttonText = document.getElementById('buttonText');
+    const loader = document.getElementById('loader');
+    const userInput = document.getElementById('userInput');
+    const aiResult = document.getElementById('aiResult');
+    const resultContent = document.getElementById('resultContent');
+    const errorMessage = document.getElementById('errorMessage');
+
+    generateButton.addEventListener('click', async () => {
+        const inputText = userInput.value.trim();
+        if (!inputText) {
+            errorMessage.textContent = '請先輸入你的問題喔！';
+            errorMessage.classList.remove('hidden');
+            return;
+        }
+
+        // --- UI updates for loading state ---
+        errorMessage.classList.add('hidden');
+        aiResult.classList.add('hidden');
+        generateButton.disabled = true;
+        buttonText.textContent = '思考中...';
+        loader.classList.remove('hidden');
+
+        // --- 準備給 AI 的指令 (Prompt) ---
+        const prompt = `你是一位溫暖、有同理心的 AI 衛教助理，服務於一個名為「ADHD 光譜」的台灣衛教網站。你的目標是根據現有的科學共識和心理健康知識，以支持、不帶批判的語氣回答使用者的問題。
+
+請遵循以下規則：
+1. 語氣溫暖、有同理心，並使用繁體中文。
+2. 回答內容需基於普遍、公開的科學知識，避免提供個人化診斷或治療建議。
+3. 將複雜概念分解成簡單、易於理解的點列式說明。
+4. 在每一則回答的結尾，都必須加上以下免責聲明，並且用一個分隔線把它和主要內容分開：
+---
+**請注意：** AI 的回答僅供教育與參考目的，不能取代專業醫療建議。每個人的狀況都不同，若您有個人健康問題，請務必諮詢合格的醫師或心理師。
+
+使用者的問題如下：
+「${inputText}」
+`;
+
+        try {
+            // ✅ 步驟 2: 將 fetch 呼叫替換為 puter.ai.chat()
+            const response = await puter.ai.chat(prompt, {
+                model: 'google/gemini-2.0-flash-lite-001', // 使用免費模型
+                stream: false // 使用非串流模式
+            });
+
+            // 從 Puter.js 的回應中取得內容
+            const generatedText = response?.message?.content;
+            
+            if (!generatedText) {
+                throw new Error("AI 回應的格式不正確或內容為空。");
+            }
+            
+            // --- 顯示結果 (這部分邏輯不變) ---
+            // 將 AI 回傳的 Markdown 格式轉換為 HTML
+            let htmlResult = generatedText
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/(\r\n|\n|\r)/g, "<br>")
+                .replace(/---<br>/g, '<hr class="my-4 border-gray-300">');
+
+            resultContent.innerHTML = htmlResult;
+            aiResult.classList.remove('hidden');
+
+        } catch (error) {
+            console.error('Puter.js AI Error:', error);
+            errorMessage.textContent = '哎呀，連線有點問題，請稍後再試一次。';
+            errorMessage.classList.remove('hidden');
+        } finally {
+            // --- 重置 UI 狀態 (這部分邏輯不變) ---
+            generateButton.disabled = false;
+            buttonText.textContent = '送出提問';
+            loader.classList.add('hidden');
+        }
+    });
+</script>
+</body>
+</html>
