@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>研究新知與深度剖析｜ADHD 光譜</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Manrope', 'Noto Sans TC', sans-serif;
+            background-color: #FEFDF8;
+            color: #3D352E;
+        }
+        :focus-visible {
+            outline: 3px solid #6D9886;
+            outline-offset: 2px;
+            border-radius: 6px;
+        }
+        .prose-custom {
+            font-size: 1.125rem;
+            line-height: 1.75;
+        }
+        .prose-custom h2 {
+            font-size: 2.25rem;
+            font-weight: 800;
+            color: #A44A3F;
+            margin-top: 2.5em;
+            margin-bottom: 1em;
+            padding-bottom: 0.3em;
+            border-bottom: 2px solid #F2E1D9;
+        }
+        .prose-custom h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #3D352E;
+            margin-top: 2em;
+            margin-bottom: 0.8em;
+        }
+        .prose-custom strong {
+            color: #BF4040;
+            font-weight: 700;
+        }
+        .prose-custom a {
+            color: #6D9886;
+            text-decoration: underline;
+            text-decoration-thickness: 1px;
+            text-underline-offset: 4px;
+        }
+        .prose-custom a:hover {
+            color: #4A6B5B;
+        }
+        .article-card {
+            background-color: white;
+            border-radius: 1rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .article-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.07);
+        }
+        .article-card .tag {
+            background-color: #F2E1D9;
+            color: #A44A3F;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-[#FEFDF8]/80 backdrop-blur-lg">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+             <a href="index.html" class="flex items-center space-x-3">
+                <svg width="40" height="40" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="45" fill="#F2E1D9"/>
+                    <path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/>
+                    <circle cx="35" cy="45" r="5" fill="#3D352E"/>
+                    <circle cx="65" cy="45" r="5" fill="#3D352E"/>
+                </svg>
+                <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
+            </a>
+            <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 py-12 md:py-20">
+        <article class="max-w-5xl mx-auto prose-custom">
+            
+            <header class="text-center mb-16">
+                <p class="text-lg font-bold text-[#6D9886]">深度剖析</p>
+                <h1 class="text-4xl md:text-5xl font-extrabold leading-tight text-[#3D352E] mt-2 mb-4">
+                    研究新知：來自科學的答案
+                </h1>
+                <p class="text-xl text-gray-600 max-w-3xl mx-auto">這裡存放著我們為你精心整理的深度研究。當你有疑問時，讓證據陪你一起思考。</p>
+            </header>
+
+            <!-- Articles Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+                <!-- Article Card 1: Liang et al. (2018) -->
+                <a href="https://doi.org/10.1016/j.ridd.2017.11.013" target="_blank" rel="noopener noreferrer" class="article-card">
+                    <img src="https://images.pexels.com/photos/1078983/pexels-photo-1078983.jpeg?auto=compress&cs=tinysrgb&w=600" alt="[Image of 一個人看著日出，象徵希望]" class="w-full h-48 object-cover">
+                    <div class="p-6 flex-grow flex flex-col">
+                        <div class="flex-grow">
+                            <span class="tag">在地研究</span>
+                            <h3 class="mt-3 mb-2 text-xl font-bold">藥物是保護網？台灣五萬名青少年的數據啟示</h3>
+                            <p class="text-base text-gray-600">一項運用台灣健保資料庫、追蹤超過五萬名 ADHD 青少年的大型研究發現，規律的藥物治療與較低的自殺企圖風險之間，存在著驚人的負相關...</p>
+                        </div>
+                        <div class="mt-4 text-sm font-semibold text-gray-500">閱讀時間：5 分鐘</div>
+                    </div>
+                </a>
+
+                <!-- Article Card 2: Chen et al. (2017) -->
+                <a href="https://doi.org/10.1371/journal.pone.0173762" target="_blank" rel="noopener noreferrer" class="article-card">
+                    <img src="https://images.pexels.com/photos/4033232/pexels-photo-4033232.jpeg?auto=compress&cs=tinysrgb&w=600" alt="[Image of 一個孩子膝蓋上的OK繃]" class="w-full h-48 object-cover">
+                    <div class="p-6 flex-grow flex flex-col">
+                        <div class="flex-grow">
+                            <span class="tag">在地研究</span>
+                            <h3 class="mt-3 mb-2 text-xl font-bold">意想不到的副作用：藥物竟然能降低骨折風險？</h3>
+                            <p class="text-base text-gray-600">我們常擔心藥物的負面影響，但另一項台灣健保研究顯示，長期用藥的 ADHD 兒童，發生骨折的機率反而顯著降低。這背後的可能原因是什麼？</p>
+                        </div>
+                        <div class="mt-4 text-sm font-semibold text-gray-500">閱讀時間：4 分鐘</div>
+                    </div>
+                </a>
+
+                <!-- Article Card 3: Man et al. (2023) -->
+                <a href="https://doi.org/10.1016/S2215-0366(23)00088-8" target="_blank" rel="noopener noreferrer" class="article-card">
+                    <img src="https://images.pexels.com/photos/7648356/pexels-photo-7648356.jpeg?auto=compress&cs=tinysrgb&w=600" alt="[Image of 一個孩子靠在身高圖表旁]" class="w-full h-48 object-cover">
+                    <div class="p-6 flex-grow flex flex-col">
+                         <div class="flex-grow">
+                            <span class="tag">長期療效</span>
+                            <h3 class="mt-3 mb-2 text-xl font-bold">吃藥會長不高嗎？來自歐洲的兩年追蹤報告</h3>
+                            <p class="text-base text-gray-600">身高是家長最擔心的議題之一。由香港大學領導的歐洲多國研究，追蹤孩童長達兩年，為我們提供了關於身高、神經發展與精神健康的珍貴數據。</p>
+                        </div>
+                        <div class="mt-4 text-sm font-semibold text-gray-500">閱讀時間：5 分鐘</div>
+                    </div>
+                </a>
+
+                <!-- Article Card 4: Hodges et al. (2023) -->
+                <a href="https://doi.org/10.1542/peds.2023-061942" target="_blank" rel="noopener noreferrer" class="article-card">
+                    <img src="https://images.pexels.com/photos/3683041/pexels-photo-3683041.jpeg?auto=compress&cs=tinysrgb&w=600" alt="[Image of 各式藥丸與藥罐]" class="w-full h-48 object-cover">
+                    <div class="p-6 flex-grow flex flex-col">
+                        <div class="flex-grow">
+                            <span class="tag">用藥安全</span>
+                            <h3 class="mt-3 mb-2 text-xl font-bold">每100分鐘一次的警鐘：美國毒物中心的用藥錯誤報告</h3>
+                            <p class="text-base text-gray-600">ADHD 藥物的使用越來越普遍，但用藥錯誤的通報也隨之增加。研究分析了數萬起案例，揭示了最常見的錯誤類型，提醒我們用藥安全的重要性。</p>
+                        </div>
+                        <div class="mt-4 text-sm font-semibold text-gray-500">閱讀時間：6 分鐘</div>
+                    </div>
+                </a>
+                
+                <!-- Article Card 5: Bieś et al. (2023) -->
+                <a href="https://doi.org/10.3390/ph16091292" target="_blank" rel="noopener noreferrer" class="article-card">
+                    <img src="https://images.pexels.com/photos/3769021/pexels-photo-3769021.jpeg?auto=compress&cs=tinysrgb&w=600" alt="[Image of 一位若有所思的成年人]" class="w-full h-48 object-cover">
+                    <div class="p-6 flex-grow flex flex-col">
+                        <div class="flex-grow">
+                            <span class="tag">成人ADHD</span>
+                            <h3 class="mt-3 mb-2 text-xl font-bold">成人的風險與回報：不只是兒童疾病</h3>
+                            <p class="text-base text-gray-600">當治療延伸到成人，風險評估也變得不同。一份針對成年患者的系統性綜述，詳細分析了常見副作用與罕見嚴重事件，強調了權衡利弊與定期追蹤的必要性。</p>
+                        </div>
+                        <div class="mt-4 text-sm font-semibold text-gray-500">閱讀時間：6 分鐘</div>
+                    </div>
+                </a>
+
+                <!-- Article Card 6: Motaghinejad et al. (2022) -->
+                <a href="https://doi.org/10.1007/s12640-021-00454-7" target="_blank" rel="noopener noreferrer" class="article-card">
+                    <img src="https://images.pexels.com/photos/2280571/pexels-photo-2280571.jpeg?auto=compress&cs=tinysrgb&w=600" alt="[Image of 科學實驗室的場景]" class="w-full h-48 object-cover">
+                    <div class="p-6 flex-grow flex flex-col">
+                        <div class="flex-grow">
+                            <span class="tag">動物研究</span>
+                            <h3 class="mt-3 mb-2 text-xl font-bold">大鼠實驗的警示：高劑量藥物與腦部氧化壓力</h3>
+                            <p class="text-base text-gray-600">有動物實驗顯示，長期高劑量的利他能可能對腦部造成氧化壓力。這對人類的臨床治療有什麼啟示？我們該如何客觀解讀動物研究的結果？</p>
+                        </div>
+                        <div class="mt-4 text-sm font-semibold text-gray-500">閱讀時間：4 分鐘</div>
+                    </div>
+                </a>
+
+            </div>
+
+        </article>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-[#3D352E] text-white mt-20">
+        <div class="container mx-auto px-6 py-12 text-center">
+            <p class="text-gray-300">本站所有內容均基於公開發表之科學研究，並力求以客觀、中立的方式呈現。</p>
+            <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
+        </div>
+    </footer>
+
+</body>
+</html>
