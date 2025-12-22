@@ -55,15 +55,71 @@ const ADHDChat = {
      * @returns {string} HTML 字串
      */
     markdownToHtml(text) {
-        return text
-            // 粗體
-            .replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#BF4040]">$1</strong>')
-            // 分隔線
-            .replace(/^---$/gm, '<hr class="my-4 border-gray-300">')
-            // 換行
-            .replace(/\n/g, '<br>')
-            // 無序列表項目
-            .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>');
+        // 先處理粗體（在列表處理之前，避免 ** 和 * 衝突）
+        let html = text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#BF4040]">$1</strong>');
+
+        // 分隔線
+        html = html.replace(/^---$/gm, '<hr class="my-4 border-gray-300">');
+
+        // 按行處理
+        const lines = html.split('\n');
+        const result = [];
+        let inOrderedList = false;
+        let inUnorderedList = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+
+            // 有序列表：數字 + 點 + 空格（或只有點）
+            const orderedMatch = line.match(/^(\d+)\.\s*(.*)$/);
+            // 無序列表：* 或 - 開頭
+            const unorderedMatch = line.match(/^[\*\-]\s+(.*)$/);
+
+            if (orderedMatch) {
+                if (!inOrderedList) {
+                    if (inUnorderedList) {
+                        result.push('</ul>');
+                        inUnorderedList = false;
+                    }
+                    result.push('<ol class="list-decimal ml-6 my-3 space-y-2">');
+                    inOrderedList = true;
+                }
+                result.push(`<li>${orderedMatch[2]}</li>`);
+            } else if (unorderedMatch) {
+                if (!inUnorderedList) {
+                    if (inOrderedList) {
+                        result.push('</ol>');
+                        inOrderedList = false;
+                    }
+                    result.push('<ul class="list-disc ml-6 my-3 space-y-2">');
+                    inUnorderedList = true;
+                }
+                result.push(`<li>${unorderedMatch[1]}</li>`);
+            } else {
+                // 非列表項目，關閉任何開啟的列表
+                if (inOrderedList) {
+                    result.push('</ol>');
+                    inOrderedList = false;
+                }
+                if (inUnorderedList) {
+                    result.push('</ul>');
+                    inUnorderedList = false;
+                }
+
+                // 空行處理
+                if (line === '') {
+                    result.push('<br>');
+                } else {
+                    result.push(`<p class="my-2">${line}</p>`);
+                }
+            }
+        }
+
+        // 關閉未結束的列表
+        if (inOrderedList) result.push('</ol>');
+        if (inUnorderedList) result.push('</ul>');
+
+        return result.join('');
     },
 
     /**
