@@ -1,0 +1,465 @@
+/* ========================================
+   ADHD 光譜 - 共用樣式表
+   ======================================== */
+
+/* ========================================
+   1. 基礎樣式與重置
+   ======================================== */
+
+body {
+    font-family: 'Manrope', 'Noto Sans TC', sans-serif;
+    background-color: #FEFDF8;
+    color: #3D352E;
+}
+
+/* ========================================
+   2. 無障礙設計
+   ======================================== */
+
+:focus-visible {
+    outline: 3px solid #6D9886;
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+/* ========================================
+   3. 排版系統 (Prose)
+   ======================================== */
+
+.prose-custom {
+    font-size: 1.125rem;
+    line-height: 1.75;
+}
+
+.prose-custom h2 {
+    font-size: 2.25rem;
+    font-weight: 800;
+    color: #A44A3F;
+    margin-top: 2.5em;
+    margin-bottom: 1em;
+    padding-bottom: 0.3em;
+    border-bottom: 2px solid #F2E1D9;
+}
+
+.prose-custom h3 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #3D352E;
+    margin-top: 2em;
+    margin-bottom: 0.8em;
+}
+
+.prose-custom strong {
+    color: #BF4040;
+    font-weight: 700;
+}
+
+.prose-custom a {
+    color: #6D9886;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+}
+
+.prose-custom a:hover {
+    color: #4A6B5B;
+}
+
+.prose-custom blockquote {
+    border-left: 4px solid #6D9886;
+    background-color: #F0F5F2;
+    padding: 1rem 1.5rem;
+    border-radius: 0.5rem;
+    font-style: normal;
+}
+
+.prose-custom blockquote p {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: #4A6B5B;
+}
+
+.prose-custom ul {
+    list-style-type: '— ';
+    padding-left: 1.25rem;
+}
+
+/* ========================================
+   4. Hero 區塊 (首頁專用)
+   ======================================== */
+
+.hero-gradient-text {
+    background: linear-gradient(to right, #D9534F, #BF4040);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.blob1 {
+    position: absolute;
+    top: -50px;
+    left: -80px;
+    width: 300px;
+    height: 300px;
+    background: #F2E1D9;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.6;
+    z-index: -1;
+}
+
+.blob2 {
+    position: absolute;
+    bottom: -50px;
+    right: -80px;
+    width: 350px;
+    height: 350px;
+    background: #D5E4D8;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.7;
+    z-index: -1;
+}
+
+/* ========================================
+   5. 標題與區塊
+   ======================================== */
+
+.section-title {
+    color: #A44A3F;
+}
+
+/* ========================================
+   6. 卡片元件
+   ======================================== */
+
+.card-hover {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-hover:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.07);
+}
+
+/* 策略卡片 */
+.strategy-card {
+    background-color: white;
+    border-radius: 1rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.strategy-card h4 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #6D9886;
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+}
+
+/* 資源卡片 */
+.resource-card {
+    background-color: white;
+    border: 1px solid #F2E1D9;
+    border-radius: 1rem;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.resource-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+}
+
+/* 文章卡片 */
+.article-card {
+    background-color: white;
+    border-radius: 1rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.article-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.07);
+}
+
+.article-card .tag {
+    background-color: #F2E1D9;
+    color: #A44A3F;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+/* 支援卡片 */
+.support-card {
+    background-color: white;
+    border-radius: 1rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    padding: 2rem;
+    border-top: 5px solid;
+}
+
+.border-cbt { border-color: #E76F51; }
+.border-coaching { border-color: #F4A261; }
+.border-lifestyle { border-color: #2A9D8F; }
+
+/* ========================================
+   7. FAQ 手風琴
+   ======================================== */
+
+.faq-item {
+    background-color: white;
+    border: 1px solid #F2E1D9;
+    border-radius: 0.75rem;
+    margin-bottom: 1rem;
+    transition: box-shadow 0.2s ease-in-out;
+}
+
+.faq-item:hover {
+    box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+}
+
+.faq-question {
+    cursor: pointer;
+    padding: 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 700;
+    font-size: 1.125rem;
+}
+
+.faq-answer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease-in-out;
+}
+
+.faq-answer-content {
+    padding: 0 1.25rem 1.25rem;
+}
+
+.faq-answer-content p,
+.faq-answer-content ul {
+    margin-bottom: 1em;
+}
+
+/* ========================================
+   8. 特殊區塊盒子
+   ======================================== */
+
+.highlight-box {
+    background-color: #FDF6E4;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    border: 2px dashed #F4A261;
+}
+
+.disclaimer-box {
+    background-color: #FFFBEB;
+    border: 2px dashed #FBBF24;
+    color: #92400E;
+}
+
+.final-thought-box,
+.final-callout {
+    background-color: #F0F5F2;
+    border: 2px dashed #6D9886;
+}
+
+.mission-statement {
+    background-color: #F0F5F2;
+    border-left: 5px solid #6D9886;
+    padding: 2rem;
+    border-radius: 0.5rem;
+}
+
+.tldr-box {
+    background-color: #F0F5F2;
+    border-left: 4px solid #6D9886;
+    padding: 1rem 1.5rem;
+    border-radius: 0.5rem;
+}
+
+/* ========================================
+   9. AI 聊天元件
+   ======================================== */
+
+.ai-chat-container {
+    background-color: white;
+    border-radius: 1rem;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    border-top: 4px solid #A44A3F;
+}
+
+.ai-result-box {
+    background-color: #F0FDF4;
+    border-left: 4px solid #16A34A;
+    border-radius: 0.5rem;
+}
+
+.ai-error-box {
+    background-color: #FEF2F2;
+    border-left: 4px solid #DC2626;
+    border-radius: 0.5rem;
+}
+
+/* 載入動畫 */
+.loader {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #6D9886;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 串流文字游標動畫 */
+.streaming-cursor::after {
+    content: '|';
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+/* ========================================
+   10. 按鈕
+   ======================================== */
+
+.btn-primary {
+    background-color: #D9534F;
+    color: white;
+    font-weight: 700;
+    padding: 0.75rem 1.5rem;
+    border-radius: 9999px;
+    transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+    background-color: #A44A3F;
+    transform: scale(1.05);
+}
+
+.btn-primary:disabled {
+    background-color: #9CA3AF;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.contact-button {
+    background-color: #A44A3F;
+    color: #FFFFFF;
+    font-weight: 700;
+    padding: 0.75rem 2rem;
+    border-radius: 9999px;
+    transition: background-color 0.2s, transform 0.2s;
+    text-decoration: none;
+}
+
+.contact-button:hover {
+    background-color: #BF4040;
+    transform: scale(1.05);
+}
+
+/* ========================================
+   11. 表單元素
+   ======================================== */
+
+.form-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 2px solid #E5E7EB;
+    border-radius: 0.5rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input:focus {
+    border-color: #6D9886;
+    box-shadow: 0 0 0 3px rgba(109, 152, 134, 0.2);
+    outline: none;
+}
+
+.form-textarea {
+    width: 100%;
+    padding: 1rem;
+    border: 2px solid #D1D5DB;
+    border-radius: 0.5rem;
+    resize: vertical;
+    min-height: 120px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-textarea:focus {
+    border-color: #6D9886;
+    box-shadow: 0 0 0 3px rgba(109, 152, 134, 0.2);
+    outline: none;
+}
+
+/* ========================================
+   12. 詞彙表專用
+   ======================================== */
+
+.glossary-item {
+    background-color: white;
+    border: 1px solid #F2E1D9;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    transition: box-shadow 0.2s ease-in-out;
+}
+
+.glossary-item:hover {
+    box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+}
+
+.glossary-term {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #A44A3F;
+    margin-bottom: 0.5rem;
+}
+
+.glossary-english {
+    font-size: 0.875rem;
+    color: #6B7280;
+    margin-bottom: 0.75rem;
+}
+
+/* ========================================
+   13. 圖示旋轉動畫
+   ======================================== */
+
+.rotate-180 {
+    transform: rotate(180deg);
+}
+
+/* ========================================
+   14. 響應式調整
+   ======================================== */
+
+@media (max-width: 768px) {
+    .prose-custom h2 {
+        font-size: 1.75rem;
+    }
+
+    .prose-custom h3 {
+        font-size: 1.25rem;
+    }
+}

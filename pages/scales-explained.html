@@ -3,92 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XS9ECD3M48"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-XS9ECD3M48');
+    </script>
     <title>認識評估量表：量化你的內心世界｜ADHD 光譜</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Manrope', 'Noto Sans TC', sans-serif;
-            background-color: #FEFDF8;
-            color: #3D352E;
-        }
-        :focus-visible {
-            outline: 3px solid #6D9886;
-            outline-offset: 2px;
-            border-radius: 6px;
-        }
-        .prose-custom {
-            font-size: 1.125rem;
-            line-height: 1.75;
-        }
-        .prose-custom h2 {
-            font-size: 2.25rem;
-            font-weight: 800;
-            color: #A44A3F;
-            margin-top: 2.5em;
-            margin-bottom: 1em;
-            padding-bottom: 0.3em;
-            border-bottom: 2px solid #F2E1D9;
-        }
-        .prose-custom h3 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #3D352E;
-            margin-top: 2em;
-            margin-bottom: 0.8em;
-        }
-        .prose-custom strong {
-            color: #BF4040;
-            font-weight: 700;
-        }
-        .prose-custom a {
-            color: #6D9886;
-            text-decoration: underline;
-        }
-        .scale-card {
-            background-color: white;
-            border-radius: 1rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-            padding: 2rem;
-            margin-bottom: 2rem;
-        }
-        .sample-question {
-            background-color: #F0F5F2;
-            border-left: 4px solid #6D9886;
-            padding: 1rem;
-            margin-top: 1rem;
-            border-radius: 0.25rem;
-            font-style: italic;
-        }
-        .disclaimer-box {
-            background-color: #FFFBEB;
-            border: 2px dashed #FBBF24;
-            color: #92400E;
-            padding: 1.5rem;
-            border-radius: 0.75rem;
-            text-align: center;
-        }
-    </style>
+    <link rel="stylesheet" href="../assets/css/styles.css">
 </head>
-<body class="antialiased">
+<body class="antialiased" data-header-type="simple" data-back-text="回到首頁">
 
-    <!-- Header -->
-    <header class="sticky top-0 z-50 bg-[#FEFDF8]/80 backdrop-blur-lg">
-        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
-             <a href="index.html" class="flex items-center space-x-3">
-                <svg width="40" height="40" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="#F2E1D9"/><path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/><circle cx="35" cy="45" r="5" fill="#3D352E"/><circle cx="65" cy="45" r="5" fill="#3D352E"/></svg>
-                <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
-            </a>
-            <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
-        </div>
-    </header>
+    <div id="site-header"></div>
 
     <!-- Main Content -->
     <main class="container mx-auto px-6 py-12 md:py-20">
         <article class="max-w-4xl mx-auto prose-custom">
-            
+
             <header class="mb-12 text-center">
                 <p class="text-lg font-bold text-[#6D9886]">資源工具箱 &gt; 評估量表</p>
                 <h1 class="text-4xl md:text-5xl font-extrabold leading-tight text-[#3D352E] mt-2 mb-4">
@@ -138,7 +74,7 @@
                      <p class="mt-4">這個量表可以作為一個很棒的情緒「溫度計」。如果你發現分數持續偏高，這是一個非常具體的信號，提醒你該和醫師或心理師討論，是否需要同時處理焦慮問題。</p>
                 </div>
             </section>
-            
+
             <!-- Section 3: Sleep -->
             <section id="sleep">
                 <h2>睡眠品質：匹茲堡睡眠品質指數 (PSQI)</h2>
@@ -168,13 +104,8 @@
         </article>
     </main>
 
-    <!-- Footer -->
-    <footer class="bg-[#3D352E] text-white mt-20">
-        <div class="container mx-auto px-6 py-12 text-center">
-            <p class="text-gray-300">本頁資訊基於公開之心理衡鑑工具介紹，僅供教育參考，不構成任何形式的測驗指導。</p>
-            <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
-        </div>
-    </footer>
+    <div id="site-footer"></div>
 
+    <script src="../assets/js/components.js"></script>
 </body>
 </html>
