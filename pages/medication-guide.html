@@ -3,87 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XS9ECD3M48"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-XS9ECD3M48');
+    </script>
     <title>深入了解利他能/專思達｜ADHD 光譜</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Manrope', 'Noto Sans TC', sans-serif;
-            background-color: #FEFDF8;
-            color: #3D352E;
-        }
-        :focus-visible {
-            outline: 3px solid #6D9886;
-            outline-offset: 2px;
-            border-radius: 6px;
-        }
-        .prose-custom {
-            font-size: 1.125rem;
-            line-height: 1.75;
-        }
-        .prose-custom h2 {
-            font-size: 2.25rem;
-            font-weight: 800;
-            color: #A44A3F;
-            margin-top: 2.5em;
-            margin-bottom: 1em;
-            padding-bottom: 0.3em;
-            border-bottom: 2px solid #F2E1D9;
-        }
-        .prose-custom h3 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #3D352E;
-            margin-top: 2em;
-            margin-bottom: 0.8em;
-        }
-        .prose-custom strong {
-            color: #BF4040;
-            font-weight: 700;
-        }
-        .prose-custom a {
-            color: #6D9886;
-            text-decoration: underline;
-            text-decoration-thickness: 1px;
-            text-underline-offset: 4px;
-        }
-        .prose-custom a:hover {
-            color: #4A6B5B;
-        }
-        .tldr-box {
-            background-color: #F0F5F2;
-            border-left: 5px solid #6D9886;
-        }
-        .key-point-box {
-            background-color: #FDF6E4;
-            border: 2px dashed #E76F51;
-        }
-    </style>
+    <link rel="stylesheet" href="../assets/css/styles.css">
 </head>
-<body class="antialiased">
+<body class="antialiased" data-header-type="simple" data-back-text="回到首頁">
 
     <!-- Header (簡化版，用於示範內容頁) -->
-    <header class="sticky top-0 z-50 bg-[#FEFDF8]/80 backdrop-blur-lg">
-        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
-             <a href="index.html" class="flex items-center space-x-3">
-                <svg width="40" height="40" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="45" fill="#F2E1D9"/>
-                    <path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/>
-                    <circle cx="35" cy="45" r="5" fill="#3D352E"/>
-                    <circle cx="65" cy="45" r="5" fill="#3D352E"/>
-                </svg>
-                <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
-            </a>
-            <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
-        </div>
-    </header>
+    <div id="site-header"></div>
 
     <!-- Main Content -->
     <main class="container mx-auto px-6 py-12 md:py-20">
         <article class="max-w-4xl mx-auto prose-custom">
-            
+
             <!-- Article Header -->
             <header class="mb-12">
                 <p class="text-lg font-bold text-[#6D9886]">治療選項 &gt; 藥物治療</p>
@@ -98,7 +40,7 @@
                 <h3 class="text-xl font-bold mt-0 mb-2 text-[#4A6B5B]">太長了，不想看？重點摘要</h3>
                 <p>利他能 (Methylphenidate) 是治療 ADHD 最常使用且研究最充足的藥物之一。它可以有效幫助大腦<strong>提升專注力</strong>與<strong>改善衝動控制</strong>。雖然它有一些可能的副作用，但多數是可管理的。關鍵在於和你的醫師建立<strong>夥伴關係</strong>，找到最適合你的劑量與節奏。這篇文章會詳細說明它的好處、風險與你最關心的各種疑問。</p>
             </div>
-            
+
             <!-- How It Works -->
             <h2>它是如何幫助我的大腦的？</h2>
             <p>你可以想像，ADHD 的大腦就像一個非常有才華，但訊號有點不穩的廣播電台。管理「專注」和「行動」的訊號傳導物質（主要是多巴胺）有時候會傳遞得不夠，或太快被回收。</p>
@@ -112,7 +54,7 @@
             <!-- Benefits -->
             <h2>長期治療的「好處」有哪些？</h2>
             <p>當我們談論藥物時，常常先想到副作用。但許多大型研究告訴我們，穩定的藥物治療能帶來許多真實生活中的「保護效果」。</p>
-            
+
             <div class="grid md:grid-cols-2 gap-6 my-8">
                 <div class="bg-white p-6 rounded-xl shadow-sm">
                     <h3 class="mt-0 font-bold">降低意外與傷害風險</h3>
@@ -197,13 +139,9 @@
     </main>
 
     <!-- Footer -->
-     <footer class="bg-[#3D352E] text-white mt-20">
-        <div class="container mx-auto px-6 py-12 text-center">
-            <p class="text-gray-300">本頁資訊基於截至 2025 年之公開科學文獻整理，僅供教育參考。</p>
-            <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
-        </div>
-    </footer>
+    <div id="site-footer"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="../assets/js/components.js"></script>
 </body>
 </html>

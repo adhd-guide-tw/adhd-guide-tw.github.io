@@ -4,89 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>關於我們｜ADHD 光譜</title>
+
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XS9ECD3M48"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-XS9ECD3M48');
+    </script>
+
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Manrope', 'Noto Sans TC', sans-serif;
-            background-color: #FEFDF8;
-            color: #3D352E;
-        }
-        :focus-visible {
-            outline: 3px solid #6D9886;
-            outline-offset: 2px;
-            border-radius: 6px;
-        }
-        .prose-custom {
-            font-size: 1.125rem;
-            line-height: 1.75;
-        }
-        .prose-custom h2 {
-            font-size: 2.25rem;
-            font-weight: 800;
-            color: #A44A3F;
-            margin-top: 2.5em;
-            margin-bottom: 1em;
-            padding-bottom: 0.3em;
-            border-bottom: 2px solid #F2E1D9;
-        }
-        .prose-custom strong {
-            color: #BF4040;
-            font-weight: 700;
-        }
-        .prose-custom a {
-            color: #6D9886;
-            text-decoration: underline;
-        }
-        .prose-custom ul {
-            list-style-type: '— ';
-            padding-left: 1.25rem;
-        }
-        .mission-statement {
-            background-color: #F0F5F2;
-            border-left: 5px solid #6D9886;
-            padding: 2rem;
-            border-radius: 0.5rem;
-        }
-        .contact-button {
-            background-color: #A44A3F; /* 使用較深的紅色以增強對比 */
-            color: #FFFFFF; /* 白色文字 */
-            font-weight: 700;
-            padding: 0.75rem 2rem;
-            border-radius: 9999px;
-            transition: background-color 0.2s, transform 0.2s;
-            text-decoration: none;
-        }
-        .contact-button:hover {
-            background-color: #BF4040;
-            transform: scale(1.05);
-        }
-    </style>
-</head>
-<body class="antialiased">
 
-    <!-- Header -->
-    <header class="sticky top-0 z-50 bg-[#FEFDF8]/80 backdrop-blur-lg">
-        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
-             <a href="index.html" class="flex items-center space-x-3">
-                <svg width="40" height="40" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="45" fill="#F2E1D9"/>
-                    <path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/>
-                    <circle cx="35" cy="45" r="5" fill="#3D352E"/>
-                    <circle cx="65" cy="45" r="5" fill="#3D352E"/>
-                </svg>
-                <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
-            </a>
-            <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
-        </div>
-    </header>
+    <!-- 共用樣式表 -->
+    <link rel="stylesheet" href="../assets/css/styles.css">
+</head>
+<body class="antialiased" data-header-type="simple" data-back-text="回到首頁">
+
+    <!-- Header 佔位符 -->
+    <div id="site-header"></div>
 
     <!-- Main Content -->
     <main class="container mx-auto px-6 py-12 md:py-20">
         <article class="max-w-4xl mx-auto prose-custom">
-            
+
             <header class="mb-12 text-center">
                 <h1 class="text-4xl md:text-5xl font-extrabold leading-tight text-[#3D352E] mt-2 mb-4">
                     關於「ADHD 光譜」
@@ -95,9 +42,9 @@
             </header>
 
             <figure class="my-12">
-                <img src="https://images.pexels.com/photos/167699/pexels-photo-167699.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1" class="w-full rounded-2xl shadow-lg" alt="[Image of 一條通往遠方森林的寧靜小徑]">
+                <img src="https://images.pexels.com/photos/167699/pexels-photo-167699.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1" class="w-full rounded-2xl shadow-lg" alt="一條通往遠方森林的寧靜小徑">
             </figure>
-            
+
             <!-- Section 1: The "Why" -->
             <h2>本專案的起點</h2>
             <p>這個網站的誕生，始於一位姓蔡、目前在北榮旁邊讀大學的學生，他也是一位在 19 歲才確診、並長期服藥的 ADHD 患者。</p>
@@ -108,11 +55,11 @@
                 <li>在這個資訊爆炸的時代，社群媒體上的用藥心得，如何形塑我們的認知與行為？</li>
             </ul>
             <p>因為親身體會過實驗室中 `pipette` 的顫抖，他選擇了認知心理學與社會科學的道路，希望透過文獻回顧與質性訪談，將這些複雜的議題梳理清晰。這個網站，便是該專題研究的最終成果。</p>
-            
+
             <!-- Section 2: Our Mission -->
             <h2>我們的使命</h2>
             <p>我們的目標，是將那些充滿洞見、卻冰冷的學術研究，轉化為每一位 ADHD 夥伴都能看懂、感受並應用的內容。我們相信，當知識變得溫暖且易於親近，它才能真正地發揮力量。</p>
-            
+
             <div class="mission-statement my-10">
                 <p class="text-xl font-bold mt-0 text-[#4A6B5B]">「我們致力於成為一座橋樑，<br>連接冰冷的科學證據，與溫暖的個人生命經驗。」</p>
             </div>
@@ -143,7 +90,7 @@
             <h2>與我們同行</h2>
             <p>這個網站是一個持續成長的有機體。我們深知，關於 ADHD 的探索永無止境。如果您有任何建議、發現錯誤，或想分享您的故事，都非常歡迎與我們聯繫。</p>
             <p>您的每一個回饋，都是讓這座燈塔更明亮、照亮更多人的珍貴燃料。</p>
-            
+
             <div class="text-center my-12">
                 <a href="contact.html" class="contact-button inline-block">
                     聯絡我們
@@ -153,13 +100,10 @@
         </article>
     </main>
 
-    <!-- Footer -->
-    <footer class="bg-[#3D352E] text-white mt-20">
-        <div class="container mx-auto px-6 py-12 text-center">
-            <p class="text-gray-300">感謝您與我們一同走在這趟探索的旅程上。</p>
-            <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
-        </div>
-    </footer>
+    <!-- Footer 佔位符 -->
+    <div id="site-footer"></div>
 
+    <!-- 組件注入腳本 -->
+    <script src="../assets/js/components.js"></script>
 </body>
 </html>

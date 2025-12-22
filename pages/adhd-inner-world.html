@@ -3,93 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XS9ECD3M48"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-XS9ECD3M48');
+    </script>
     <title>藥物之外的內心戲｜ADHD 光譜</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Manrope', 'Noto Sans TC', sans-serif;
-            background-color: #FEFDF8;
-            color: #3D352E;
-        }
-        :focus-visible {
-            outline: 3px solid #6D9886;
-            outline-offset: 2px;
-            border-radius: 6px;
-        }
-        .prose-custom {
-            font-size: 1.125rem;
-            line-height: 1.75;
-        }
-        .prose-custom h2 {
-            font-size: 2.25rem;
-            font-weight: 800;
-            color: #A44A3F;
-            margin-top: 2.5em;
-            margin-bottom: 1em;
-            padding-bottom: 0.3em;
-            border-bottom: 2px solid #F2E1D9;
-        }
-        .prose-custom h3 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #3D352E;
-            margin-top: 2em;
-            margin-bottom: 0.8em;
-        }
-        .prose-custom strong {
-            color: #BF4040;
-            font-weight: 700;
-        }
-        .prose-custom a {
-            color: #6D9886;
-            text-decoration: underline;
-            text-decoration-thickness: 1px;
-            text-underline-offset: 4px;
-        }
-        .prose-custom a:hover {
-            color: #4A6B5B;
-        }
-        .intro-box {
-            background-color: #FDF6E4;
-            border-left: 5px solid #E76F51;
-        }
-        .motivation-card {
-            background-color: white;
-            border-radius: 1rem;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.04);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        .motivation-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.06);
-        }
-    </style>
+    <link rel="stylesheet" href="../assets/css/styles.css">
 </head>
-<body class="antialiased">
+<body class="antialiased" data-header-type="simple" data-back-text="回到首頁">
 
-    <!-- Header -->
-    <header class="sticky top-0 z-50 bg-[#FEFDF8]/80 backdrop-blur-lg">
-        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
-             <a href="index.html" class="flex items-center space-x-3">
-                <svg width="40" height="40" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="45" fill="#F2E1D9"/>
-                    <path d="M 30 60 C 40 75, 60 75, 70 60" stroke="#A44A3F" stroke-width="6" fill="none" stroke-linecap="round"/>
-                    <circle cx="35" cy="45" r="5" fill="#3D352E"/>
-                    <circle cx="65" cy="45" r="5" fill="#3D352E"/>
-                </svg>
-                <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
-            </a>
-            <a href="index.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">&larr; 回到首頁</a>
-        </div>
-    </header>
+    <div id="site-header"></div>
 
     <!-- Main Content -->
     <main class="container mx-auto px-6 py-12 md:py-20">
         <article class="max-w-4xl mx-auto prose-custom">
-            
+
             <!-- Article Header -->
             <header class="mb-12">
                 <p class="text-lg font-bold text-[#6D9886]">心理與決策</p>
@@ -98,7 +33,7 @@
                 </h1>
                 <p class="text-xl text-gray-600">吃藥不只是吞下一顆藥丸。它關乎我們的感受、我們的選擇，以及我們如何看待自己。這一頁，我們不只談科學，也談心情。</p>
             </header>
-            
+
             <!-- Intro Box -->
             <div class="intro-box p-6 rounded-lg my-12">
                 <p>你是否曾經覺得，醫師開的劑量「好像不太對」？或者在社群媒體上看到某篇貼文後，開始懷疑自己的治療？這些感受非常普遍。治療 ADHD 從來不只是生理問題，更是一場深刻的心理探索旅程。</p>
@@ -107,7 +42,7 @@
             <!-- Section 1: Self-Adjustment -->
             <h2>為什麼我總想自己調整藥量？</h2>
             <p>許多質性研究訪談了 ADHD 夥伴們，發現「自行調整藥量」的背後，往往不只是「不聽話」，而是源自於三種非常人性化的內在需求。</p>
-            
+
             <div class="grid md:grid-cols-3 gap-6 my-10">
                 <!-- Motivation 1 -->
                 <div class="motivation-card p-6 text-center">
@@ -148,11 +83,11 @@
                     <p><strong>真相：</strong>社群影片常以誇張的戲劇化方式呈現用藥前後的對比。每個人對藥物的反應都不同，劑量也需要個人化調整。將他人的「超能力」經驗當成自己的預期，只會帶來不必要的失望與焦慮。</p>
                 </div>
             </div>
-            
+
             <!-- Section 3: Reward System -->
             <h2>藥物如何改變我對「爽」的感覺？</h2>
             <p>你是否覺得自己很難為了「長遠的好處」而努力，卻很容易被眼前「立即的樂趣」吸引？這和 ADHD 大腦的「獎賞系統」有關。我們的獎賞迴路有時會對「延遲的獎勵」反應比較遲鈍。</p>
-            
+
             <div class="bg-white p-8 my-10 rounded-2xl shadow-lg flex flex-col md:flex-row items-center gap-8">
                 <!-- Visual Metaphor -->
                 <div class="flex-shrink-0">
@@ -190,13 +125,8 @@
         </article>
     </main>
 
-    <!-- Footer -->
-    <footer class="bg-[#3D352E] text-white mt-20">
-        <div class="container mx-auto px-6 py-12 text-center">
-            <p class="text-gray-300">本頁資訊基於截至 2025 年之公開科學文獻及質性研究整理，僅供教育參考。</p>
-            <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
-        </div>
-    </footer>
+    <div id="site-footer"></div>
 
+    <script src="../assets/js/components.js"></script>
 </body>
 </html>
