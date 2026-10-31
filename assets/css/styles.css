@@ -12,6 +12,20 @@ body {
     color: #3D352E;
 }
 
+/* Tailwind 的 container 在 lg、xl 等於斷點寬，視窗 1024、1280px 時內容只離邊緣 24px。
+   改成兩側至少各留 2rem，2xl 起停在 1280px。重複的 class 用來蓋過 Tailwind 之後插入的規則。 */
+@media (min-width: 1024px) {
+    .container.container {
+        max-width: min(1024px, 100% - 4rem);
+    }
+}
+
+@media (min-width: 1280px) {
+    .container.container {
+        max-width: min(1280px, 100% - 4rem);
+    }
+}
+
 /* ========================================
    2. 無障礙設計
    ======================================== */
@@ -34,10 +48,20 @@ body {
     overflow-wrap: anywhere;
 }
 
-/* 螢幕太窄或字放大時片語塞不進一行，改回逐字斷行，標點才不會被擠到行首。 */
+/* Safari 27 在 keep-all 下會在「後斷行，引號內的詞要包在 .nobr 裡。 */
+.phrase-wrap .nobr {
+    white-space: nowrap;
+}
+
+/* 螢幕太窄或字放大時片語塞不進一行，改回逐字斷行，標點才不會被擠到行首。
+   首頁標題不用：詞組最多 4 個字，字級又跟著欄寬縮小。 */
 @media (max-width: 20em) {
-    .phrase-wrap {
+    .phrase-wrap:not(.hero-title) {
         word-break: normal;
+    }
+
+    .phrase-wrap .nobr {
+        white-space: normal;
     }
 }
 
