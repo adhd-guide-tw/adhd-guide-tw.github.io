@@ -11,6 +11,7 @@ import { createServer as createHttpServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
 
 import { streamChat, sseData, redact, parseRetryAfter, classifyStatus, UpstreamError } from '../src/upstream.mjs';
+import { parseContextOverflow } from '../src/generate.mjs';
 import { startFakeUpstream, testConfig } from './fake-upstream.mjs';
 
 const basicPayload = (extra = {}) => ({
@@ -66,6 +67,27 @@ test('正常串流：分開收集思考與正文，回傳結束原因與用量',
         assert.deepEqual(texts, ['你', '好！']);
         // 最後一塊只帶 usage、finish_reason 是 null，不能把 stop 蓋掉
         assert.equal(r.usage.completion_tokens, 4);
+    });
+});
+
+test('onResponse：收到回應標頭時呼叫一次，在任何思考與正文之前；錯誤的狀態碼也呼叫；丟出的例外原樣丟回', async () => {
+    await withUpstream([
+        { thinking: ['想'], content: ['好'], finish: 'stop' },
+        { status: 429, body: { error: { message: 'busy' } } },
+        { content: ['好'], finish: 'stop' },
+    ], async (up) => {
+        const seen = [];
+        await streamChat(testConfig(up.origin), basicPayload(), {
+            onResponse: () => seen.push('response'),
+            onReasoning: () => seen.push('thinking'),
+            onContent: () => seen.push('content'),
+        });
+        assert.deepEqual(seen, ['response', 'thinking', 'content']);
+        let calls = 0;
+        await assert.rejects(streamChat(testConfig(up.origin), basicPayload(), { onResponse: () => calls++ }), { code: 'busy' });
+        assert.equal(calls, 1);
+        const own = new Error('呼叫端的錯誤');
+        await assert.rejects(streamChat(testConfig(up.origin), basicPayload(), { onResponse: () => { throw own; } }), (err) => err === own);
     });
 });
 
@@ -200,15 +222,24 @@ test('錯誤內容很大時只讀一小段（不會把記憶體吃光），detai
     });
 });
 
-test('Retry-After：只收十進位秒數或 HTTP-date，上限 300 秒', () => {
+test('Retry-After：只收十進位秒數或 HTTP-date，照上游要求的秒數，上限一天只為了數值安全', () => {
     const now = Date.parse('2026-10-21T00:00:00Z');
     assert.equal(parseRetryAfter('7', now), 7);
     assert.equal(parseRetryAfter('0', now), 0);
     assert.equal(parseRetryAfter('0x10', now), undefined);
     assert.equal(parseRetryAfter('1.5', now), undefined);
     assert.equal(parseRetryAfter('1e9', now), undefined);
-    assert.equal(parseRetryAfter('999999', now), 300);
+    assert.equal(parseRetryAfter('3600', now), 3600);
+    assert.equal(parseRetryAfter('86400', now), 86_400);
+    assert.equal(parseRetryAfter('999999', now), 86_400);
     assert.equal(parseRetryAfter('Wed, 21 Oct 2026 00:00:30 GMT', now), 30);
+    assert.equal(parseRetryAfter('Wed, 21 Oct 2026 01:00:00 GMT', now), 3600);
+    assert.equal(parseRetryAfter('Fri, 01 Jan 2027 00:00:00 GMT', now), 86_400);
+    // fetch 把重複的標頭用「, 」接起來：取第一個值
+    assert.equal(parseRetryAfter('120, 120', now), 120);
+    assert.equal(parseRetryAfter('30, 999', now), 30);
+    assert.equal(parseRetryAfter('Wed, 21 Oct 2026 00:00:30 GMT, Wed, 21 Oct 2026 00:01:00 GMT', now), 30);
+    assert.equal(parseRetryAfter('soon, 30', now), undefined);
     assert.equal(parseRetryAfter('Tue, 20 Oct 2026 00:00:00 GMT', now), 0);
     assert.equal(parseRetryAfter('soon', now), undefined);
     assert.equal(parseRetryAfter(null, now), undefined);
@@ -239,6 +270,93 @@ test('200 但不是 SSE：protocol；content-type 是上游的文字，遮罩並
             return true;
         });
     });
+});
+
+// 不是串流的內容只讀前 8 KiB，寫完的長回答解析不了，要看開頭
+test('200 但不是 SSE、內容是超過 8 KiB 的寫完的回答：照樣認得出是 generated、不重試', async () => {
+    const body = JSON.stringify({ id: 'chatcmpl-x', object: 'chat.completion', choices: [{ index: 0, message: { role: 'assistant', content: '答'.repeat(5000) }, finish_reason: 'stop' }] });
+    assert.ok(Buffer.byteLength(body) > 15_000);
+    await withUpstream([{ rawChunks: [body], contentType: 'application/json' }], async (up) => {
+        await assert.rejects(streamChat(testConfig(up.origin), basicPayload()), (err) => {
+            assert.equal(err.code, 'protocol');
+            assert.equal(err.retryable, false);
+            assert.equal(err.generated, true);
+            return true;
+        });
+    });
+});
+
+test('200 但內容是 code 為文字的錯誤：說的是 context 長度就當成 400（generate 認得出來），其他的照舊是可以重試的 protocol', async () => {
+    const overflow = { error: { code: 'context_length_exceeded', type: 'invalid_request_error', message: "This model's maximum context length is 65536 tokens. However, you requested 8 output tokens and your prompt contains at least 65529 input tokens" } };
+    await withUpstream([{ rawChunks: [JSON.stringify(overflow)], contentType: 'application/json' }], async (up) => {
+        await assert.rejects(streamChat(testConfig(up.origin), basicPayload()), (err) => {
+            assert.equal(err.code, 'misconfigured');
+            assert.equal(err.status, 400);
+            assert.equal(err.retryable, false);
+            assert.deepEqual(parseContextOverflow(err), { limit: 65536, atLeast: 65529 });
+            return true;
+        });
+    });
+    await withUpstream([{ rawChunks: ['{"error":{"code":"server_overloaded","message":"retry later"}}'], contentType: 'application/json' }], async (up) => {
+        await assert.rejects(streamChat(testConfig(up.origin), basicPayload()), { code: 'protocol', retryable: true });
+    });
+});
+
+test('200 但不是 SSE、內容是寫完的回答（有 choices 或 object 是 chat.completion）：protocol、不重試，標明 generated', async () => {
+    for (const body of ['{"choices":[{"message":{"content":"答"}}]}', '{"object":"chat.completion","id":"x"}']) {
+        await withUpstream([{ rawChunks: [body], contentType: 'application/json' }], async (up) => {
+            await assert.rejects(streamChat(testConfig(up.origin), basicPayload()), (err) => {
+                assert.equal(err.code, 'protocol', body);
+                assert.equal(err.retryable, false, body);
+                assert.equal(err.generated, true, body);
+                return true;
+            });
+        });
+    }
+});
+
+// 維護頁面、代理的錯誤頁多半是暫時的：接續輪會退避重試，HTTP 服務也不計次
+test('200 但不是 SSE、也不是帶著 HTTP 狀態的錯誤（HTML、沒有 code 的 JSON、code 不是 4xx／5xx、204）：protocol、可以重試', async () => {
+    const steps = [
+        { contentType: 'text/html', rawChunks: ['<html>維護中</html>'] },
+        { contentType: 'application/json', rawChunks: ['{"error":{"message":"oops"}}'] },
+        { contentType: 'application/json', rawChunks: ['{"error":{"message":"oops","code":"200"}}'] },
+        { contentType: 'application/json', rawChunks: ['{"error":"429"}'] },
+        { status: 204, headers: { 'content-type': 'application/json' } },
+    ];
+    for (const step of steps) {
+        await withUpstream([step], async (up) => {
+            await assert.rejects(streamChat(testConfig(up.origin), basicPayload()), (err) => {
+                assert.equal(err.code, 'protocol', JSON.stringify(step));
+                assert.equal(err.retryable, true, JSON.stringify(step));
+                assert.equal(err.status, undefined, JSON.stringify(step));
+                return true;
+            });
+        });
+    }
+});
+
+test('200 但內容是帶著 HTTP 狀態的錯誤（LiteLLM 包在 error 裡的字串、vLLM 放在最外層的數字）：照那個狀態分類，原文遮罩後放 detail', async () => {
+    const cases = [
+        [{ error: { message: 'Rate limit for sk-abcdef123456', type: 'rate_limit', code: '429' } }, { 'retry-after': '7' }, 'busy', true, 429, 7],
+        [{ object: 'error', message: 'timed out', type: 'Timeout', code: 504 }, {}, 'timeout', true, 504, undefined],
+        [{ error: { message: 'bad key', type: 'auth_error', code: 401 } }, {}, 'auth', false, 401, undefined],
+    ];
+    for (const [body, headers, code, retryable, status, retryAfter] of cases) {
+        await withUpstream([{ contentType: 'application/json', rawChunks: [JSON.stringify(body)], headers }], async (up) => {
+            await assert.rejects(streamChat(testConfig(up.origin), basicPayload()), (err) => {
+                assert.equal(err.code, code, String(status));
+                assert.equal(err.retryable, retryable, String(status));
+                assert.equal(err.status, status);
+                assert.equal(err.retryAfter, retryAfter);
+                assert.equal(err.upstreamType, body.error?.type ?? body.type);
+                assert.equal(err.mediaType, 'application/json');
+                assert.doesNotMatch(err.detail, /abcdef123456/);
+                assert.doesNotMatch(err.message, /Rate limit|timed out|bad key/);
+                return true;
+            });
+        });
+    }
 });
 
 test('content-type 裡的 key 用原文比對（先轉小寫的話，大小寫有別的 key 就遮不到）', async () => {
@@ -328,6 +446,69 @@ test('串流途中的 error 物件：依 code 分類；LiteLLM 接著送的 [DON
                 assert.doesNotMatch(err.detail, /SECRET9/);
                 return true;
             });
+        });
+    }
+});
+
+test('上游錯誤的 request id、type、code 與 param：只收 [A-Za-z0-9_.:-] 組成、64 字以內、遮罩前後相同的值', async () => {
+    const uuid = '0f8e2c1a-7b9d-4e5f-a1b2-c3d4e5f60718';
+    const cases = [
+        ['LiteLLM 的格式', { status: 400, headers: { 'x-request-id': 'req-abc_1.2:3' }, body: { error: { type: 'BadRequestError', code: 400, param: 'messages', message: '使用者的輸入' } } },
+            ['req-abc_1.2:3', 'BadRequestError', '400', 'messages']],
+        ['vLLM 的格式（在最外層）', { status: 400, headers: { 'x-litellm-call-id': uuid }, body: { object: 'error', type: 'BadRequestError', code: 400, message: 'x' } },
+            [uuid, 'BadRequestError', '400', undefined]],
+        ['有空白、漢字、超過 64 字', { status: 400, headers: { 'x-request-id': 'has space' }, body: { error: { type: '使用者的輸入', code: 'x'.repeat(65), param: '使用者 的輸入' } } },
+            [undefined, undefined, undefined, undefined]],
+        ['遮罩會改掉的：key、內部位址、長十六進位', { status: 400, headers: { 'x-request-id': 'a'.repeat(40) }, body: { error: { type: 'litellm-proxy:4000', code: 'sk-test-key-123', param: '10.1.2.3' } } },
+            [undefined, undefined, undefined, undefined]],
+        ['內容不是 JSON', { status: 502, headers: { 'x-request-id': 'req-502' }, body: 'Bad Gateway' }, ['req-502', undefined, undefined, undefined]],
+    ];
+    for (const [label, step, expected] of cases) {
+        await withUpstream([step], async (up) => {
+            await assert.rejects(streamChat(testConfig(up.origin), basicPayload()), (err) => {
+                assert.ok(err instanceof UpstreamError, label);
+                assert.deepEqual([err.upstreamId, err.upstreamType, err.upstreamCode, err.upstreamParam], expected, label);
+                return true;
+            });
+        });
+    }
+});
+
+test('串流中的 error 事件：type 與 code 照同樣的規則收；request id 用串流裡最近一塊的 id，沒有才用標頭', async () => {
+    const id = 'chatcmpl-0123456789abcdef0123456789abcdef';
+    const rawChunks = [
+        `data: {"id":"${id}","choices":[{"index":0,"delta":{"content":"半"}}]}\n\n`,
+        'data: {"error":{"type":"InternalServerError","code":"500","message":"使用者的輸入"}}\n\n',
+        'data: [DONE]\n\n',
+    ];
+    const headers = { 'x-request-id': 'req-header' };
+    await withUpstream([{ rawChunks, headers }, { errorChunk: { type: 'X Y', code: 503 }, headers }], async (up) => {
+        for (const expected of [[id, 'InternalServerError', '500'], ['req-header', undefined, '503']]) {
+            await assert.rejects(streamChat(testConfig(up.origin), basicPayload()), (err) => {
+                assert.deepEqual([err.upstreamId, err.upstreamType, err.upstreamCode], expected);
+                return true;
+            });
+        }
+    });
+});
+
+test('收到標頭之後的其他錯誤（不是串流、閒置逾時）也帶著標頭的 request id', async () => {
+    const headers = { 'x-request-id': 'req-after-headers' };
+    await withUpstream([{ contentType: 'text/html', headers }, { thinking: ['想'], hangAfterChunks: 2, headers }], async (up) => {
+        for (const code of ['protocol', 'timeout']) {
+            await assert.rejects(streamChat(testConfig(up.origin, { idleTimeoutMs: 300 }), basicPayload()), (err) => {
+                assert.equal(err.code, code);
+                assert.equal(err.upstreamId, 'req-after-headers', code);
+                return true;
+            });
+        }
+    });
+});
+
+test('finish_reason 只收固定形狀的代號，其他換成 unknown（它會寫進錯誤訊息與 log）', async () => {
+    for (const [raw, expected] of [['content_filter', 'content_filter'], ['stop 使用者的輸入', 'unknown'], ['x'.repeat(65), 'unknown']]) {
+        await withUpstream([{ content: ['半'], finish: raw }], async (up) => {
+            assert.equal((await streamChat(testConfig(up.origin), basicPayload())).finishReason, expected, raw);
         });
     }
 });
@@ -458,6 +639,77 @@ test('一直有東西進來就不算閒置：總時間超過閒置門檻也不�
     });
 });
 
+// 2026-10-31 的探測：卡住的代理一直送 SSE 註解或空的 delta，名額被佔到任務的總時限
+test('收到標頭之後只有 SSE 註解、空的 delta、空字串的正文：不算進展，照樣閒置逾時', async () => {
+    const fillers = [
+        ': keepalive\n\n',
+        'data: {"choices":[{"index":0,"delta":{}}]}\n\n',
+        'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}\n\n',
+        'data: {"choices":[]}\n\n',
+    ];
+    for (const filler of fillers) {
+        await withServer(async (req, res) => {
+            for await (const _ of req);
+            res.writeHead(200, { 'content-type': 'text/event-stream' });
+            const timer = setInterval(() => { if (!res.destroyed) res.write(filler); }, 50);
+            res.on('close', () => clearInterval(timer));
+        }, async (origin) => {
+            const started = Date.now();
+            await assert.rejects(streamChat(testConfig(origin, { idleTimeoutMs: 300 }), basicPayload()), { code: 'timeout', retryable: true }, filler);
+            assert.ok(Date.now() - started < 2_000, `${filler}：等了 ${Date.now() - started}ms`);
+        });
+    }
+});
+
+test('只有正文、或只有 usage 的串流也算進展：每 100ms 一段、閒置逾時 300ms，一共 1 秒多也照常完成', async () => {
+    const streams = {
+        content: Array.from({ length: 10 }, (_, i) => ({ choices: [{ index: 0, delta: { content: String(i) } }] })),
+        usage: Array.from({ length: 10 }, (_, i) => ({ choices: [], usage: { prompt_tokens: i + 1 } })),
+    };
+    for (const [label, events] of Object.entries(streams)) {
+        await withServer(async (req, res) => {
+            for await (const _ of req);
+            res.writeHead(200, { 'content-type': 'text/event-stream' });
+            for (const event of [...events, { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }]) {
+                await sleepMs(100);
+                if (res.destroyed) return;
+                res.write(`data: ${JSON.stringify(event)}\n\n`);
+            }
+            res.end('data: [DONE]\n\n');
+        }, async (origin) => {
+            const started = Date.now();
+            const r = await streamChat(testConfig(origin, { idleTimeoutMs: 300 }), basicPayload());
+            assert.equal(r.finishReason, 'stop', label);
+            assert.ok(Date.now() - started > 900, label);
+        });
+    }
+});
+
+test('思考、正文、只帶 usage 的事件都算進展：每一段的間隔（150ms）都短於閒置逾時（500ms），總時間比它長也照常完成', async () => {
+    const events = [
+        { choices: [{ index: 0, delta: { reasoning_content: '想' } }] },
+        { choices: [{ index: 0, delta: { reasoning: '再想' } }] },
+        { choices: [], usage: { prompt_tokens: 1 } },
+        { choices: [{ index: 0, delta: { content: '答' } }] },
+        { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    ];
+    await withServer(async (req, res) => {
+        for await (const _ of req);
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (const event of events) {
+            await sleepMs(150);
+            // 每段之間夾著註解：不影響計時
+            res.write(`: ping\n\ndata: ${JSON.stringify(event)}\n\n`);
+        }
+        res.end('data: [DONE]\n\n');
+    }, async (origin) => {
+        const r = await streamChat(testConfig(origin, { idleTimeoutMs: 500 }), basicPayload());
+        assert.equal(r.reasoning, '想再想');
+        assert.equal(r.content, '答');
+        assert.equal(r.finishReason, 'stop');
+    });
+});
+
 test('undici 自己的 headers／body 逾時歸類為 timeout（不是 unavailable）', async () => {
     for (const code of ['UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']) {
         const fetchImpl = async () => {
@@ -533,16 +785,27 @@ test('每條路徑都不殘留計時器：子程序跑完各種收尾路徑後�
     assert.ok(Date.now() - started < 15_000, `子程序 ${Date.now() - started}ms 才退出：有計時器沒清掉`);
 });
 
-test('[DONE] 之後把串流讀到結束：連線放回連線池，之後的輪次不必重新連線', async () => {
-    // 回應在 [DONE] 之後 50ms 才結束。收到 [DONE] 就中斷的話，每一輪都要重新連線（與 TLS 握手）。
-    // 第一條連線不被重用是 undici 本身的行為（純 fetch 打最簡單的 Node 伺服器也一樣），
-    // 所以斷言的是「之後不再增加」。收尾期限放寬：CPU 被搶時，200ms 的期限可能比那 50ms 先到，
-    // 連線被中止，每一輪都得重新連線（2026-10-22 在負載高時重複跑整套測試，24 次裡遇過 1 次）
-    const step = { content: ['ok'], endDelayMs: 50 };
-    await withUpstream([step, step, step, step, step], async (up) => {
-        const cfg = testConfig(up.origin, { idleTimeoutMs: 10_000, afterFinishIdleMs: 5_000 });
-        for (let i = 0; i < 5; i++) await streamChat(cfg, basicPayload());
-        assert.ok(up.connections <= 2, `5 輪用了 ${up.connections} 條連線`);
+// 收到 [DONE] 就中斷的話，這條連線不能放回連線池，下一輪要重新連線（與 TLS 握手）。這裡檢查的是
+// 伺服器端每個回應都送完、沒有被用戶端中途關掉；不數連線數：undici 偶爾照樣另開一條（2026-10-31
+// 整套測試跑 72 次遇過 1 次 5 輪用了 5 條）
+test('[DONE] 之後把串流讀到結束：回應在 [DONE] 之後 50ms 才結束，5 輪的回應都送完，沒有被中途關掉', async () => {
+    const event = (obj) => `data: ${JSON.stringify(obj)}\n\n`;
+    let finished = 0;
+    let cut = 0;
+    await withServer(async (req, res) => {
+        for await (const _ of req);
+        res.on('finish', () => { finished++; });
+        res.on('close', () => { if (!res.writableFinished) cut++; });
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.write(`${event({ choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] })}data: [DONE]\n\n`);
+        await sleepMs(50);
+        res.end();
+    }, async (origin) => {
+        const cfg = testConfig(origin, { idleTimeoutMs: 10_000, afterFinishIdleMs: 5_000 });
+        for (let i = 0; i < 5; i++) assert.equal((await streamChat(cfg, basicPayload())).content, 'ok');
+        for (let i = 0; i < 50 && finished < 5; i++) await sleepMs(10);
+        assert.equal(finished, 5);
+        assert.equal(cut, 0);
     });
 });
 
@@ -745,7 +1008,8 @@ test('SSE：接近上限的長行切成很多小塊送來也很快（殘行不�
     const events = await collect(chunks());
     assert.equal(events.length, 1);
     assert.equal(events[0].length, 900 * 1024);
-    assert.ok(Date.now() - started < 1_500, `花了 ${Date.now() - started}ms`);
+    // 平常約 0.1 秒；每來一塊就從頭重掃的寫法本機要 7 秒以上（2026-11-01）。門檻放寬到 5 秒，CPU 被搶時才不會誤判
+    assert.ok(Date.now() - started < 5_000, `花了 ${Date.now() - started}ms`);
 });
 
 test('redact：含數字與大寫的雜湊、小寫 bearer、黏在底線後的雜湊都要遮掉', () => {
@@ -1134,8 +1398,8 @@ test('Retry-After：時分秒超出範圍不收；閏秒 23:59:60 當成 :59；R
     for (const bad of ['Tue, 20 Oct 2026 10:60:00 GMT', 'Tue, 20 Oct 2026 10:00:61 GMT', 'Mon, 30 Feb 2026 00:00:00 GMT']) {
         assert.equal(parseRetryAfter(bad, now), undefined, bad);
     }
-    // 2076 年不算「50 年以後」，照字面；2077 年算，改成 1977 年
-    assert.equal(parseRetryAfter('Thursday, 01-Jan-76 00:00:00 GMT', now), 300);
+    // 2076 年不算「50 年以後」，照字面（遠在一天之後，夾到上限）；2077 年算，改成 1977 年
+    assert.equal(parseRetryAfter('Thursday, 01-Jan-76 00:00:00 GMT', now), 86_400);
     assert.equal(parseRetryAfter('Friday, 01-Jan-77 00:00:00 GMT', now), 0);
     assert.equal(parseRetryAfter(' 30 ', now), 30);
 });
@@ -1479,4 +1743,100 @@ test('content-type 放進 detail 前截到 100 字（不會被其他規則縮短
 
 test('redact：%40、%60 這類可見 ASCII 的 URL 編碼也解回原字', () => {
     assert.equal(redact('a%40b%60c'), 'a@b`c');
+});
+
+// 上游沒照 max_tokens 停時，一個回應最多收的思考加正文（字元），與 upstream.mjs 的常數各自寫一次
+const responseLimit = (maxTokens) => maxTokens * 128 + 4096;
+
+test('上游沒照 max_tokens 停（max_tokens 1 卻送 2048 個 4096 字元的事件）：超過上限就中止連線、回報 protocol，不全部收下', async () => {
+    let sent = 0;
+    let markClosed;
+    const closed = new Promise((resolve) => { markClosed = resolve; });
+    const server = createHttpServer(async (req, res) => {
+        for await (const part of req) void part;
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.on('close', markClosed);
+        const event = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'x'.repeat(4096) } }] })}\n\n`;
+        for (let i = 0; i < 2048 && !res.destroyed; i++) {
+            res.write(event);
+            sent++;
+            await new Promise((resolve) => setImmediate(resolve));
+        }
+        if (!res.destroyed) res.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+        const origin = `http://127.0.0.1:${server.address().port}`;
+        await assert.rejects(streamChat(testConfig(origin), basicPayload({ maxTokens: 1 })), (err) => {
+            assert.ok(err instanceof UpstreamError);
+            assert.equal(err.code, 'protocol');
+            assert.equal(err.retryable, false);
+            assert.match(err.message, new RegExp(`${responseLimit(1)} 字元`));
+            return true;
+        });
+        await closed;
+        assert.ok(sent < 2048, `上游送了 ${sent} 個事件才發現連線關了`);
+    } finally {
+        server.closeAllConnections();
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
+test('一個回應的思考加正文剛好等於上限照常收下，多一個字元就是 protocol；max_tokens 8192 收 30 萬字元（平均每個 token 36.6 字元）照常收下', async () => {
+    const limit = responseLimit(10);
+    await withUpstream([
+        { thinking: ['想'.repeat(1000)], content: ['a'.repeat(limit - 1000)], finish: 'stop' },
+        { thinking: ['想'.repeat(1000)], content: ['a'.repeat(limit - 1000 + 1)], finish: 'stop' },
+        { content: Array.from({ length: 300 }, () => '長回答。'.repeat(250)), finish: 'stop' },
+    ], async (up) => {
+        const exact = await streamChat(testConfig(up.origin), basicPayload({ maxTokens: 10 }));
+        assert.equal(exact.reasoning.length + exact.content.length, limit);
+        await assert.rejects(streamChat(testConfig(up.origin), basicPayload({ maxTokens: 10 })), { code: 'protocol' });
+        const long = await streamChat(testConfig(up.origin), basicPayload({ maxTokens: 8192 }));
+        assert.equal(long.content.length, 300_000);
+        assert.equal(long.finishReason, 'stop');
+    });
+});
+
+const sseEvent = (o) => `data: ${typeof o === 'string' ? o : JSON.stringify(o)}\n\n`;
+const piece = (delta, finish) => sseEvent({ choices: [{ index: 0, delta, ...(finish ? { finish_reason: finish } : {}) }] });
+
+// vLLM 結束時，最後一段正文與 finish_reason 在同一塊
+test('一個回應的上限在帶著 finish_reason 的那一塊、或 finish_reason 之後才超過：一樣是 protocol，不交出截短的內容', async () => {
+    const cases = [
+        ['超過上限的那一塊帶著 finish_reason', [piece({ content: 'a'.repeat(4000) }), piece({ content: 'b'.repeat(1000) }, 'stop'), sseEvent('[DONE]')]],
+        ['finish_reason 之後還有正文', [piece({ content: 'a'.repeat(4000) }), piece({}, 'stop'), piece({ content: 'b'.repeat(1000) }), sseEvent('[DONE]')]],
+    ];
+    for (const [label, rawChunks] of cases) {
+        await withUpstream([{ rawChunks }], async (up) => {
+            await assert.rejects(streamChat(testConfig(up.origin), basicPayload({ maxTokens: 1 })), { code: 'protocol' }, label);
+        });
+    }
+});
+
+test('只送思考的洪流也受一個回應的上限限制', async () => {
+    await withUpstream([{ thinking: Array.from({ length: 64 }, () => '想'.repeat(1000)), finish: 'stop' }], async (up) => {
+        await assert.rejects(streamChat(testConfig(up.origin), basicPayload({ maxTokens: 1 })), (err) => {
+            assert.equal(err.code, 'protocol');
+            assert.match(err.message, new RegExp(`${responseLimit(1)} 字元`));
+            return true;
+        });
+    });
+});
+
+test('思考或正文不是字串（數字、物件）：protocol，帶著 finish_reason 的那一塊也一樣', async () => {
+    const cases = [
+        [piece({ content: 12345 }), piece({}, 'stop')],
+        [piece({ reasoning_content: { text: '想' } }), piece({}, 'stop')],
+        [piece({ content: '答案' }), piece({ content: 0 }, 'stop')],
+    ];
+    for (const chunks of cases) {
+        await withUpstream([{ rawChunks: [...chunks, sseEvent('[DONE]')] }], async (up) => {
+            await assert.rejects(streamChat(testConfig(up.origin), basicPayload()), (err) => {
+                assert.equal(err.code, 'protocol');
+                assert.equal(err.message, '串流的思考或正文不是字串');
+                return true;
+            });
+        });
+    }
 });
