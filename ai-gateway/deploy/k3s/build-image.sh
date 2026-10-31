@@ -36,7 +36,7 @@ fi
 # key 的 Secret 不進 git；沒有的話 pod 會卡在 ContainerCreating，先擋下來並說明怎麼建
 sudo k3s kubectl apply -f "$dir/namespace.yaml"
 if ! sudo k3s kubectl -n "$ns" get secret ai-gateway-env >/dev/null 2>&1; then
-  echo "還沒有 Secret ai-gateway-env。建立方式見 ai-gateway/README.md 的「部署」" >&2
+  echo "還沒有 Secret ai-gateway-env，要先建立（key 放在 LLM_API_KEY 這一項）" >&2
   exit 1
 fi
 
