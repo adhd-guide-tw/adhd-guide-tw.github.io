@@ -115,7 +115,7 @@ spec:
               mountPath: /run/secrets/adhd-ai
               readOnly: true
       volumes:
-        # 不進 git；建立與更換方式見 ai-gateway/README.md 的「部署」
+        # 不進 git，部署前另外建立
         - name: secrets
           secret:
             secretName: ai-gateway-env

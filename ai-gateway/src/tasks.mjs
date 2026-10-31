@@ -33,7 +33,7 @@ import { toTraditional } from './s2t.mjs';
 
 /**
  * SYSTEM_PROMPT 是每個任務的 system 訊息開頭：身分、語言、網頁認得的格式與安全規則。
- * 安全規則的依據與台灣的專線號碼見 README 的「提示詞的依據」。
+ * 安全規則的依據見 ai-gateway/README.md 的「提示詞的依據」。
  */
 export const SYSTEM_PROMPT = [
     '你是「ADHD 光譜」衛教網站上的 AI 助理。來使用的人多半是台灣有 ADHD 的成人、青少年，或陪伴他們的家人朋友。你是 AI，不是醫師、心理師或藥師，不能診斷，也不能治療。',

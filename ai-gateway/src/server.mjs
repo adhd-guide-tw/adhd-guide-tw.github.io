@@ -60,7 +60,7 @@ const MAX_BODY_DEPTH = 3;
 const CONNECTIONS_CHECK_MS = 5_000;
 // 同時在收 body 的任務請求上限，超過就立刻 503 並關掉連線。Funnel 收完標頭就轉送，body 邊收邊送，
 // 慢慢上傳的連線每條約 50 KiB。依記憶體選：2026-10-22 在 256 MiB 的 cgroup 裡持續灌慢速上傳，
-// RSS 最高 162 MiB（上限 2000 時 204 MiB）。滿了新任務一律 503，取捨見 README 的「資源上限」
+// RSS 最高 162 MiB（上限 2000 時 204 MiB）。滿了新任務一律 503，拿 503 換掉 OOM
 const MAX_BODY_READS = 1000;
 // 連線數的最後防線（net.Server 的 maxConnections：到了上限，新連線直接關掉）。比 MAX_BODY_READS
 // 大，留給進行中的 SSE、閒置的 keep-alive 與還在送標頭的連線
