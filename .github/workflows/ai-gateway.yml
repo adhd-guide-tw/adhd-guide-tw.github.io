@@ -1,0 +1,29 @@
+name: AI Gateway Tests
+
+# 測試只打本機的假上游，不連外網，也不需要 key。task-catalog 的測試會讀頁面，所以頁面改了也要跑。
+on:
+  push:
+    branches: [ "main" ]
+    paths: [ "ai-gateway/**", "assets/js/ai-chat.js", "pages/**", "package.json", ".github/workflows/ai-gateway.yml" ]
+  pull_request:
+    paths: [ "ai-gateway/**", "assets/js/ai-chat.js", "pages/**", "package.json", ".github/workflows/ai-gateway.yml" ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      # 先不經清單直接跑：它負責檢查清單，被移出清單時就不會跑到。
+      - name: Source hygiene
+        run: node --test ai-gateway/test/source-hygiene.test.mjs
+      - name: Gateway tests
+        run: npm run test:ai-gateway
