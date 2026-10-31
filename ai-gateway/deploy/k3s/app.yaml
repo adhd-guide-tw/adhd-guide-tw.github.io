@@ -50,7 +50,7 @@ spec:
       containers:
         - name: gateway
           # tag 是 git commit；build-image.sh 會改這一行再 apply
-          image: localhost/adhd-ai-gateway:c9299de8aed8
+          image: localhost/adhd-ai-gateway:6e7407987e8c
           imagePullPolicy: Never
           env:
             - name: PORT
