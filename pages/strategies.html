@@ -14,9 +14,6 @@
       gtag('config', 'G-XS9ECD3M48');
     </script>
 
-    <!-- Puter.js for Gemini AI -->
-    <script src="https://js.puter.com/v2/"></script>
-
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -50,16 +47,16 @@
                          <span class="text-4xl mr-3">✨</span>
                          AI 陪我拆解任務
                      </h2>
-                     <p class="mt-2 text-base">覺得任務大到像座山，完全不知從何爬起嗎？把那座「山」的名字寫下來，AI 教練會陪你把它變成一堆可以輕鬆撿起的小石頭。（使用 Gemini 3 Pro 模型）</p>
+                     <p class="mt-2 text-base">覺得任務大到像座山，完全不知從何爬起嗎？把那座「山」的名字寫下來，AI 教練會陪你把它變成一堆可以輕鬆撿起的小石頭。（由自架的 AI 服務回答，使用的人多時可能要等一兩分鐘）</p>
 
                      <div class="mt-6">
                          <label for="taskInput" class="block font-semibold mb-2">寫下讓你不知所措的任務：</label>
-                         <input type="text" id="taskInput" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：「寫一份五千字的期末報告」或「把亂成一團的房間整理好」">
+                         <input type="text" id="taskInput" maxlength="200" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：「寫一份五千字的期末報告」或「把亂成一團的房間整理好」">
+                         <p class="mt-2 text-sm text-gray-600">請不要寫下姓名、身分證字號、電話、地址這類能認出你的資料。</p>
                      </div>
 
                      <button id="generateButton" class="mt-4 bg-[#D9534F] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
                          <span class="button-text">幫我制定策略</span>
-                         <div class="loader ml-3 hidden"></div>
                      </button>
 
                      <div id="aiResult" class="mt-6 hidden">
@@ -149,6 +146,8 @@
 
     <!-- 組件注入腳本 -->
     <script src="../assets/js/components.js"></script>
+    <!-- AI 閘道客戶端 -->
+    <script src="../assets/js/platform-ai.js"></script>
     <!-- AI 聊天功能 -->
     <script src="../assets/js/ai-chat.js"></script>
     <script>

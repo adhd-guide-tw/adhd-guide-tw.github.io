@@ -1,0 +1,12 @@
+{
+  "name": "adhd-guide-tw",
+  "private": true,
+  "description": "ADHD 光譜：台灣 ADHD 衛教網站與它的 AI 閘道",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test:ai-gateway": "node --test --test-timeout=30000 ai-gateway/test/config.test.mjs ai-gateway/test/control-tokens.test.mjs ai-gateway/test/generate.test.mjs ai-gateway/test/limits.test.mjs ai-gateway/test/s2t.test.mjs ai-gateway/test/schema.test.mjs ai-gateway/test/server-config.test.mjs ai-gateway/test/server.test.mjs ai-gateway/test/source-hygiene.test.mjs ai-gateway/test/task-catalog.test.mjs ai-gateway/test/tasks.test.mjs ai-gateway/test/upstream.test.mjs"
+  }
+}

@@ -1,0 +1,98 @@
+// 正式上線的任務清單（task-catalog.mjs）：定義過得了啟動時的檢查，頁面送來的欄位與字數上限對得上。
+//
+// 執行：npm run test:ai-gateway
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+import { TASK_DEFINITIONS } from '../src/task-catalog.mjs';
+import { createCatalog, validateInput, buildMessages, finalizeOutput } from '../src/tasks.mjs';
+
+const catalog = createCatalog(TASK_DEFINITIONS);
+const readRepoFile = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+
+/** PAGES 列出呼叫閘道的頁面，以及頁面上 ADHDChat.init 的輸入框。 */
+const PAGES = [
+    ['pages/faq.html', 'userInput'],
+    ['pages/strategies.html', 'taskInput'],
+    ['pages/toolbox.html', 'userInput'],
+];
+
+/**
+ * pageWiring 從頁面與 assets/js/ai-chat.js 讀出這一頁呼叫的任務、送的欄位與輸入框的 maxlength。
+ * @param {string} page @param {string} inputId @returns {{taskId: string, field: string, maxlength: number}}
+ */
+function pageWiring(page, inputId) {
+    const html = readRepoFile(page);
+    const promptType = /promptType: '(\w+)'/.exec(html)?.[1];
+    const tag = new RegExp(`<(?:textarea|input)\\b[^>]*\\bid="${inputId}"[^>]*>`).exec(html)?.[0] ?? '';
+    const mapping = new RegExp(`\\b${promptType}: \\{ id: '([a-z-]+)', field: '(\\w+)' \\}`).exec(readRepoFile('assets/js/ai-chat.js'));
+    assert.ok(promptType && mapping, `${page}：找不到 promptType 或 ai-chat.js 的對應`);
+    return { taskId: mapping[1], field: mapping[2], maxlength: Number(/\bmaxlength="(\d+)"/.exec(tag)?.[1]) };
+}
+
+test('每個任務定義都過得了啟動時的檢查（id、欄位），沒有重複的 id', () => {
+    assert.equal(catalog.size, TASK_DEFINITIONS.length);
+    assert.ok(catalog.size >= 1);
+});
+
+test('每個任務都組得出訊息：使用者的資料只在 user 訊息、包在資料標記裡', () => {
+    for (const task of catalog.values()) {
+        const input = Object.fromEntries(Object.keys(task.input).map((name) => [name, '測試內容']));
+        const [system, user] = buildMessages(task, validateInput(task, input));
+        assert.match(system.content, /^你是「ADHD 光譜」/, task.id);
+        assert.doesNotMatch(system.content, /測試內容/, task.id);
+        assert.match(user.content, /^<資料-[0-9a-f]{12} 欄位="[^"]+">\n測試內容\n<\/資料-[0-9a-f]{12}>/, task.id);
+    }
+});
+
+// 依據見 task-catalog.mjs 的 TASK_DEFINITIONS。
+test('任務都不設 timeoutMs，沿用 LLM_TASK_TIMEOUT_MS', () => {
+    for (const task of catalog.values()) assert.equal(task.timeoutMs, undefined, task.id);
+});
+
+test('每一頁送的欄位就是任務唯一的欄位，輸入框的 maxlength 等於任務的 maxLength', () => {
+    const used = new Set();
+    for (const [page, inputId] of PAGES) {
+        const { taskId, field, maxlength } = pageWiring(page, inputId);
+        const task = catalog.get(taskId);
+        assert.ok(task, `${page} 呼叫的 ${taskId} 不在清單裡`);
+        assert.deepEqual(Object.keys(task.input), [field], page);
+        assert.equal(maxlength, task.input[field].maxLength, page);
+        used.add(taskId);
+    }
+    assert.deepEqual([...used].sort(), [...catalog.keys()].sort(), '清單裡有沒有頁面呼叫的任務');
+});
+
+test('字數上限：剛好上限可以，多一個字就是 invalid_input', () => {
+    for (const task of catalog.values()) {
+        const [[field, { maxLength }]] = Object.entries(task.input);
+        assert.equal(validateInput(task, { [field]: '忘'.repeat(maxLength) })[field].length, maxLength, task.id);
+        assert.throws(() => validateInput(task, { [field]: '忘'.repeat(maxLength + 1) }), { code: 'invalid_input', field }, task.id);
+    }
+});
+
+test('都是文字任務：結果是去掉前後空白的字串', () => {
+    for (const task of catalog.values()) {
+        assert.equal(task.output.type, 'markdown', task.id);
+        assert.equal(finalizeOutput(task, '\n回答\n'), '回答', task.id);
+    }
+});
+
+// 頁面不另外顯示免責聲明，只靠模型附上。
+test('adhd-faq：指令要求在結尾用分隔線隔開，附上含 119 與 1925 的免責聲明', () => {
+    const { instructions } = catalog.get('adhd-faq');
+    assert.match(instructions, /單獨一行的 --- 隔開/);
+    assert.match(instructions, /\*\*請注意：\*\* 這是 AI 產生的衛教資訊，[^\n]*撥 119，或撥 1925 安心專線（24 小時）。/);
+});
+
+// 三個任務共用 SYSTEM_PROMPT，刪掉其中一條，每個任務都會少一道防線。
+test('每個任務的 system 訊息都有危機處理、用藥與格式的規則', () => {
+    for (const task of catalog.values()) {
+        const [system] = buildMessages(task, validateInput(task, { [Object.keys(task.input)[0]]: '測試' }));
+        assert.match(system.content, /請立刻撥 119/, task.id);
+        assert.match(system.content, /1925 安心專線（24 小時、免費）/, task.id);
+        assert.match(system.content, /第三級管制藥品/, task.id);
+        assert.match(system.content, /網頁不認得 # 標題/, task.id);
+    }
+});

@@ -1,7 +1,7 @@
 # ✨ ADHD 光譜 (ADHD Spectrum)
 
 [![授權條款](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/deed.zh_TW)
-[![技術支援](https://img.shields.io/badge/Built%20with-Gemini%20API-4285F4)](https://ai.google.dev/)
+[![AI](https://img.shields.io/badge/AI-self--hosted%20gateway-6D9886)](./ai-gateway/README.md)
 [![專案狀態](https://img.shields.io/badge/status-completed-success)](#)
 
 **ADHD 光譜** 是一個專為台灣成人與青少年設計的注意力不足/過動症 (ADHD) 線上衛教資訊站。
@@ -34,7 +34,7 @@
 
   * **🧠 核心知識體系：** 從「我是誰」（[`about-adhd.html`](./about-adhd.html)）、「我該怎麼辦」（[`holistic-approach.html`](./holistic-approach.html)）到「我們如何共處」（[`for-supporters.html`](./for-supporters.html)），建構一條清晰的探索路徑。
   * **🔬 深度研究剖析：** 將您提供的每一份關鍵研究，都製作成獨立的深度文章頁面 (如 [`article-suicide-risk.html`](./article-suicide-risk.html), [`article-creativity.html`](./article-creativity.html) 等)，讓使用者能深入了解每個議題背後的科學證據。
-  * **🤖 AI 賦能互動：** 在「常見問答」頁面 ([`faq.html`](./faq.html)) 與「資源工具箱」頁面 ([`resources.html`](./resources.html)) 中，整合了由 Gemini API 驅動的 AI 助理，讓使用者在找不到答案或需要整理思緒時，能獲得即時、個人化的協助。
+  * **🤖 AI 賦能互動：** 「常見問答」（[`faq.html`](./pages/faq.html)）、「生活策略」（[`strategies.html`](./pages/strategies.html)）與「資源工具箱」（[`toolbox.html`](./pages/toolbox.html)）各有一個 AI 表單，分別回答問題、陪你拆解任務、把雜亂的想法整理成看診筆記。AI 由自架的閘道代為呼叫模型，見 [`ai-gateway/`](./ai-gateway/README.md)。
   * **🧰 實用工具箱：** 提供「生活策略」([`strategies.html`](./strategies.html))、「評估量表介紹」([`scales-explained.html`](./scales-explained.html)) 與「ADHD 詞彙表」([`glossary.html`](./glossary.html))，將知識轉化為可應用的工具。
   * **🎨 ADHD 友善設計：** 整體網站採用溫暖、有機的設計風格，使用柔和的米白背景、高對比的深棕色文字，並透過卡片式佈局與清晰的導覽，致力於降低使用者的認知負荷，提供無壓力的瀏覽體驗。
 
@@ -52,7 +52,7 @@
 | `for-supporters.html`           | 給支持者的指南                                 |
 | `research.html`                 | **研究新知** - 所有深度研究文章的入口          |
 | `article-*.html`                | (共13篇) 針對特定研究報告的深度解讀文章        |
-| `faq.html`                      | 常見問題 (整合 Gemini API)                     |
+| `faq.html`                      | 常見問題 (含 AI 問答)                          |
 | `glossary.html`                 | ADHD 詞彙表 (深度版)                           |
 | `scales-explained.html`         | 認識專業評估量表                               |
 | `about.html`                    | **關於我們** - 網站緣起與使命                  |
@@ -63,12 +63,13 @@
 
 ## 🛠️ 技術棧
 
-本網站完全使用前端技術建構，確保了載入速度與部署的簡易性。
+網站本身是靜態頁面，載入快，部署也簡單。AI 功能另外呼叫一個自架的閘道。
 
   * **HTML5**
   * **CSS3** (透過 [Tailwind CSS](https://tailwindcss.com/) 框架)
   * **JavaScript**:
-      * 使用原生 JavaScript (Fetch API) 呼叫 [Google Gemini API](https://ai.google.dev/)。
+      * 使用原生 JavaScript 呼叫 AI 閘道，答案以 SSE 邊收邊顯示。
+  * **AI 閘道**：Node 24，跑在 k3s 上，代為呼叫 WinLab 自架的模型，細節見 [`ai-gateway/README.md`](./ai-gateway/README.md)。
       * 使用 [Alpine.js](https://alpinejs.dev/) 輔助部分頁面的簡單互動效果。
 
 ## 🤝 如何貢獻
