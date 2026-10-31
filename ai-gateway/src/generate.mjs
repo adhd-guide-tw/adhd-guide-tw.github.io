@@ -1,5 +1,5 @@
 /**
- * 自動續寫引擎：WinLab 單次輸出有長度上限（8192 tokens，含思考），xhigh 想得深的題目
+ * 自動續寫引擎：每一輪的輸出有長度上限（LLM_MAX_TOKENS，預設 8192 tokens，含思考），xhigh 想得深的題目
  * 一輪可能寫不完。這裡把「被截斷（finish_reason = length）」接成下一輪，直到答案寫完、
  * 或用完 LLM_MAX_ROUNDS。
  *
@@ -41,10 +41,12 @@
  *   不論哪一種，下一輪的請求（不算提醒）若會跟這一輪一模一樣，例如整輪只有空白、只重複了已經
  *   寫過的內容、重寫出同一份草稿，這一輪就算「沒有淨進展」：下一輪加一句提醒（temperature 0
  *   時同樣的請求只會得到同樣的結果），連續兩輪沒有淨進展就提前結束，不把剩下的輪數燒完。
+ *   接續正文的一輪去重疊後沒有新增看得見的字就以 stop 結束，也算沒有淨進展：答案還停在截斷的
+ *   地方，不能當成寫完交出去。
  *
- * 每一輪都要放得進模型的 context：WinLab 這個模型只有 32768 tokens，而且「輸入 + max_tokens」
- * 超過就直接 400，不會自動縮小（2026-10-21 實測）。估算器（estimateTokens）依字元類別估，
- * 對常見中文與英文高估不少、對罕用字與數字可能低估，所以只拿它做第一步：
+ * 每一輪都要放得進模型的 context（2026-10-31 實測 65536 tokens），「輸入 + max_tokens」超過就直接
+ * 400，不會自動縮小。估算器（estimateTokens）依字元類別估，對常見中文與英文高估不少、對罕用字與
+ * 數字可能低估，所以只拿它做第一步：
  *   - 第一輪：估算的可用額度有上限的九成以上就直接送；更少時先用 max_tokens=1 探一次，從
  *     usage.prompt_tokens 拿到精確的輸入 token 數再決定（探測是一次完整的 prefill，WinLab
  *     排隊時還要多等一輪，只差一點點時不值得）。之後幾輪的題目都用這個精確值（或第一輪 usage
@@ -72,8 +74,9 @@
  * 照抄成半形，第二輪就繞過了輸入端的中和。送給呼叫端的串流與最後的結果不動。
  *
  * 接續輪遇到可重試的上游錯誤（429 忙線、連線中斷、閒置逾時，探測時遇到的也一樣），在總時限內
- * 退避重試；有 Retry-After 就照它等，等不完總時限就提早放棄。第一輪失敗讓使用者自己重按就好，
- * 但接續輪失敗會把前面幾分鐘的成果全部丟掉。
+ * 退避重試；有 Retry-After 就照它等，沒有就指數退避再乘上 0.5～1 的隨機倍數（同時失敗的任務才不會
+ * 同時重送），等不完總時限就提早放棄。第一輪失敗讓使用者自己重按就好，但接續輪失敗會把前面幾分鐘
+ * 的成果全部丟掉。
  *
  * 文字任務串流給呼叫端的文字（onContent）與最後回傳的 content 保證逐字相同：每一輪開頭與
  * 正文中間的空白先暫存，確定不是退化才送；接續輪的開頭再緩衝到確定不會形成更長的重疊，
@@ -84,16 +87,21 @@
  * 會零星冒出簡體字（「阶段」「数据收集」）。
  */
 import { neutralizeControlTokens } from './control-tokens.mjs';
-import { streamChat, UpstreamError } from './upstream.mjs';
+import { streamChat, UpstreamError, MAX_CHARS_PER_TOKEN } from './upstream.mjs';
+import { hasVisibleText } from './visible-text.mjs';
+import { createLengthGuard } from './tasks.mjs';
 
 export class GenerationError extends Error {
     /**
      * @param {string} code  incomplete（用完輪數或 context 放不下仍未寫完）| empty（沒有任何正文）|
      *                       format（JSON 任務最後一份正文寫完了卻不合格，之後用完輪數或提前結束）|
-     *                       timeout（超過總時限）| stopped（非 stop／length 的結束原因）
+     *                       timeout（超過總時限）| stopped（非 stop／length 的結束原因）|
+     *                       busy（上游要求等的時間超過在請求裡等的上限）
+     * retryAfter 與 cause：上游要求等得太久、沒有重試時（busy 或 timeout），帶著它與上游的錯誤
+     * 正文超過 maxContentChars 的 incomplete 另外帶著 tooLong: true；沒有進展的帶著 stalled: true
      */
-    constructor(code, message, { partial, rounds, finishReason, continuations, usage } = {}) {
-        super(message);
+    constructor(code, message, { partial, rounds, finishReason, continuations, usage, stats, retryAfter, cause } = {}) {
+        super(message, cause !== undefined ? { cause } : undefined);
         this.name = 'GenerationError';
         this.code = code;
         this.partial = partial;
@@ -102,6 +110,8 @@ export class GenerationError extends Error {
         this.continuations = continuations;
         // 失敗之前已經用掉的 tokens（含探測），呼叫端記 log 用
         this.usage = usage;
+        this.stats = stats;
+        this.retryAfter = retryAfter;
     }
 }
 
@@ -159,6 +169,8 @@ const MIN_SEGMENT_ESTIMATE = 64;
 const CONTINUATION_RETRIES = 2;
 const RETRY_BASE_MS = 2_000;
 const RETRY_MAX_MS = 30_000;
+// 上游要求等更久的，不在請求裡等：使用者看著畫面等、名額也一直佔著。直接回忙線，轉告要等多久
+const MAX_RETRY_WAIT_SECONDS = 120;
 
 const LANGUAGE_REMINDER = '全程使用台灣繁體中文與台灣用語，不要出現任何簡體字。';
 // 引用前文用的括號：一般文章幾乎不會出現，前文本身含「」時邊界也不會混淆
@@ -256,6 +268,16 @@ function hasDegenerateWhitespace(text) {
 
 const WORD = /[\p{L}\p{N}]/u;
 const DIGIT = /\p{N}/u;
+
+/**
+ * repeatsTail 判斷接續新增的部分是不是只把已寫正文的結尾重寫一次：去掉前後空白之後是 previous 的
+ * 結尾，而且至少有兩個字母或數字。開頭多了空白或換行的重疊，trimOverlap 要至少 8 個字才去掉。
+ * @param {string} previous @param {string} added @returns {boolean}
+ */
+function repeatsTail(previous, added) {
+    const text = added.trim();
+    return [...text].filter((ch) => WORD.test(ch)).length >= 2 && previous.trimEnd().endsWith(text);
+}
 // 英文字母與阿拉伯數字：以空格分詞的文字，詞的中間不會斷開
 const LATIN_WORD = /[A-Za-z0-9]/;
 
@@ -600,30 +622,37 @@ function segmentRatio(tokens, text) {
  * 產生一個完整回答（必要時跨多輪）。
  *
  * @param {object} config   loadLlmConfig() 的結果（用到 contextTokens、maxTokens、maxRounds 等）
- * @param {object} request  { messages, temperature?, responseFormat?, acceptJson? }
+ * @param {object} request  { messages, temperature?, responseFormat?, acceptJson?, maxContentChars? }
  *                          responseFormat 是 json_object／json_schema 時視為 JSON 輸出。
- *                          acceptJson(content)：JSON 任務的正文可以交出時回傳 true，呼叫端交出前用同一套
- *                          驗證才不會收下不合格的、或重寫其實合格的。沒給就只看是不是完整的 JSON（可包在
- *                          ``` 圍欄裡）而且頂層必填欄位都在
+ *                          maxContentChars：文字任務的正文上限（見 tasks.mjs 的 maxOutputChars），送出的正文
+ *                          累計超過就中止上游，以 incomplete（tooLong）結束，不再開下一輪
+ *                          acceptJson(content)：JSON 任務的正文可以交出時回傳 true（其他值都是不收），呼叫端
+ *                          交出前用同一套驗證才不會收下不合格的、或重寫其實合格的。沒給就只看是不是完整的
+ *                          JSON（可包在 ``` 圍欄裡）而且頂層必填欄位都在
  * @param {object} [hooks]  signal：呼叫端取消
  *                          onProgress({phase, round, thinkingTokens, writingTokens, reason?, attempt?, delayMs?})：
  *                            phase 為 thinking | writing | continuing | retrying；token 數是串流片段數，
  *                            只是給進度條用的近似值
  *                          onContent(text)：逐段送出最終答案的正文（只有文字任務會呼叫）
- *                          兩個 hook 可以是 async；丟出例外或 reject 都會中止任務並原樣丟回。
+ *                          onResponse()：每次收到上游的回應標頭（含探測、重試與錯誤的回應）
+ *                          onReject({round, reason})：JSON 寫完（stop）卻不收、要整份重寫或結束時；reason 是
+ *                            acceptJson 的回傳值
+ *                          這幾個 hook 可以是 async；丟出例外或 reject 都會中止任務並原樣丟回。
  *                            回傳結果前會等所有 async hook 完成（受總時限與取消約束）
- *                          streamChatImpl：測試用
- * @returns {Promise<{content: string, rounds: number, usage: object, continuations: string[]}>}
+ *                          streamChatImpl、random（退避的隨機倍數用，預設 Math.random）：測試用
+ * @returns {Promise<{content: string, rounds: number, usage: object, continuations: string[], stats: object}>}
  *          continuations 依序記錄每次接續的原因：thinking | writing | rewrite | degenerate
- *          失敗時丟出的錯誤帶著 partial（已寫好的部分）、rounds、continuations、usage
+ *          stats：{ retries（接續輪退避後重送）, probes（max_tokens=1 的探測）, rewrites（送出過的 JSON 重寫輪）}
+ *          失敗時丟出的錯誤帶著 partial（已寫好的部分）、rounds、continuations、usage、stats
  */
 export async function generate(config, request, hooks = {}) {
-    const { messages, temperature, responseFormat, acceptJson } = request;
-    const { signal, streamChatImpl = streamChat } = hooks;
+    const { messages, temperature, responseFormat, acceptJson, maxContentChars } = request;
+    const { signal, streamChatImpl = streamChat, random = Math.random } = hooks;
     const jsonMode = isJsonFormat(responseFormat);
-    const acceptable = (text) => Boolean(text.trim()) && (acceptJson
-        ? Boolean(acceptJson(text))
+    const judge = (text) => Boolean(text.trim()) && (acceptJson
+        ? acceptJson(text)
         : isCompleteJson(unwrapCodeFence(text), responseFormat));
+    const acceptable = (text) => judge(text) === true;
     const deadlineAt = Date.now() + config.taskTimeoutMs;
 
     let content = '';      // 文字任務：已確定的正文（跨輪累積）；JSON 任務：這一輪的正文
@@ -650,6 +679,7 @@ export async function generate(config, request, hooks = {}) {
     let currentRound = 0;
     const continuations = [];
     const usage = { promptTokens: 0, completionTokens: 0, reasoningTokens: 0 };
+    const stats = { retries: 0, probes: 0, rewrites: 0 };
 
     const partial = () => {
         if (!jsonMode) return content.trim() ? content : draft;
@@ -666,7 +696,7 @@ export async function generate(config, request, hooks = {}) {
     // 錯誤可能是呼叫端自己的物件（hook 丟出的），不該改變它被列舉或序列化的樣子；凍結的就不動
     const attach = (err, round) => {
         if (err === null || typeof err !== 'object' || !Object.isExtensible(err)) return err;
-        const extra = { partial: partial(), rounds: round, continuations: [...continuations], usage: { ...usage } };
+        const extra = { partial: partial(), rounds: round, continuations: [...continuations], usage: { ...usage }, stats: { ...stats } };
         for (const [key, value] of Object.entries(extra)) {
             try {
                 if (err[key] === undefined) {
@@ -682,6 +712,7 @@ export async function generate(config, request, hooks = {}) {
         partial: partial(),
         continuations: [...continuations],
         usage: { ...usage },
+        stats: { ...stats },
         ...extra,
     });
 
@@ -720,6 +751,8 @@ export async function generate(config, request, hooks = {}) {
     } : undefined);
     const onProgress = guard(hooks.onProgress) || (() => {});
     const onContent = jsonMode ? undefined : guard(hooks.onContent);
+    const onResponse = guard(hooks.onResponse);
+    const onReject = guard(hooks.onReject) || (() => {});
     const throwIfHookFailed = (round) => {
         if (hookFailed) throw attach(hookError, round);
     };
@@ -747,8 +780,23 @@ export async function generate(config, request, hooks = {}) {
             }
         }
         throwIfHookFailed(round);
-        return value;
+        return { ...value, stats: { ...stats } };
     };
+
+    // 上游沒照 max_tokens 停時，整個任務最多收的思考加正文（字元）。每輪最多 max_tokens 個 token、
+    // 思考也算在內，正常的輸出連同重試都遠低於「輪數 × max_tokens」個 token 換算的字元數。
+    // 一個回應的上限在 streamChat，探測也受它限制
+    const maxTaskChars = config.maxRounds * config.maxTokens * MAX_CHARS_PER_TOKEN;
+    let receivedChars = 0;
+    const receive = (text) => {
+        receivedChars += String(text).length;
+        if (receivedChars > maxTaskChars) {
+            throw new UpstreamError('protocol', `上游送來的思考與正文累計超過 ${maxTaskChars} 字元`);
+        }
+    };
+
+    // 只有文字任務的 forward 會用到
+    const overLength = maxContentChars ? createLengthGuard(maxContentChars) : null;
 
     const minOutput = Math.min(MIN_ROUND_TOKENS, config.maxTokens);
     const estimateMessages = (msgs) => estimateTokens(msgs.map((m) => m.content).join('')) + PER_MESSAGE_TOKENS * msgs.length;
@@ -913,6 +961,7 @@ export async function generate(config, request, hooks = {}) {
      */
     const measurePrompt = async (roundMessages, effort, format) => {
         let probe;
+        stats.probes++;
         try {
             probe = await streamChatImpl(config, {
                 messages: roundMessages,
@@ -920,7 +969,7 @@ export async function generate(config, request, hooks = {}) {
                 reasoningEffort: effort,
                 temperature,
                 responseFormat: format,
-            }, { signal: combined });
+            }, { signal: combined, onResponse });
         } catch (err) {
             if (parseContextOverflow(err)) return Infinity;
             throw err;
@@ -938,6 +987,7 @@ export async function generate(config, request, hooks = {}) {
     const runRounds = async () => {
         for (let round = 1; round <= config.maxRounds; round++) {
             currentRound = round;
+            const roundBegin = content;
             if (round > 1) {
                 onProgress({ phase: 'continuing', round, reason: continuations.at(-1), thinkingTokens, writingTokens });
                 throwIfHookFailed(round);
@@ -945,10 +995,12 @@ export async function generate(config, request, hooks = {}) {
 
             let result;
             let plan;
+            let roundStart;           // 這一次嘗試開始前的正文（重試時是斷線前已送出的部分）
             let tailDropped = false;  // 這一輪寫到最後退化成一大串空白（已丟掉）
             let squeezed = false;     // 這一輪的正文中間壓過退化的空白（正文的 token 比例因此不準）
             let attempt = 0;
             let contextRetries = 0;
+            let rewriteSent = false;  // 這一輪的 JSON 重寫已經送出過（stats.rewrites 每輪只算一次）
             const caps = { carry: Infinity, maxTokens: Infinity, measured: null };
             let pending = null;       // 送出前要先探測：{ overflow, atLeast }
             let probedFresh = false;
@@ -1019,7 +1071,7 @@ export async function generate(config, request, hooks = {}) {
                     probedFit = true;
                 }
                 if (!pending) assertFits(plan, round);
-                const roundStart = content;
+                roundStart = content;
                 // 文字任務的正文先經過空白的關卡：一串空白先暫存，後面出現非空白才送出（退化的那種
                 // 壓成最多兩個換行）；輪末仍是退化的一大串空白就丟掉
                 let started = false;
@@ -1029,8 +1081,13 @@ export async function generate(config, request, hooks = {}) {
                 // 接續正文時，開頭先緩衝到確定重疊不會再變長才送出
                 let headResolved = jsonMode || plan.mode !== 'writing';
                 let head = '';
+                // 超過正文上限的那一段不收也不送，丟出的錯誤由 streamChat 中止串流後原樣丟回。只有空白的
+                // 一段不算超過：結尾的空白在交出前會去掉，後面再有字時才算
                 const forward = (text) => {
                     if (!text) return;
+                    if (overLength?.(text) && /\S/.test(text)) {
+                        throw Object.assign(fail('incomplete', `正文超過 ${maxContentChars} 字的上限`, { rounds: round }), { tooLong: true });
+                    }
                     content += text;
                     onContent?.(text);
                 };
@@ -1097,6 +1154,10 @@ export async function generate(config, request, hooks = {}) {
                         plan = planRound(round, caps);
                         assertFits(plan, round);
                     }
+                    if (plan.mode === 'rewrite' && !rewriteSent) {
+                        rewriteSent = true;
+                        stats.rewrites++;
+                    }
                     result = await streamChatImpl(config, {
                         messages: plan.roundMessages,
                         maxTokens: plan.maxTokens,
@@ -1105,11 +1166,15 @@ export async function generate(config, request, hooks = {}) {
                         responseFormat: plan.format,
                     }, {
                         signal: combined,
-                        onReasoning: () => {
+                        onResponse,
+                        // 超過累計上限時丟出的錯誤，streamChat 會中止串流後原樣丟回
+                        onReasoning: (text) => {
+                            receive(text);
                             thinkingTokens++;
                             onProgress({ phase: 'thinking', round, thinkingTokens, writingTokens });
                         },
                         onContent: (text) => {
+                            receive(text);
                             writingTokens++;
                             onProgress({ phase: 'writing', round, thinkingTokens, writingTokens });
                             if (jsonMode) feedJson(text);
@@ -1169,10 +1234,17 @@ export async function generate(config, request, hooks = {}) {
                     }
                     const delayMs = err.retryAfter !== undefined
                         ? err.retryAfter * 1000
-                        : Math.min(config.retryMaxMs ?? RETRY_MAX_MS, (config.retryBaseMs ?? RETRY_BASE_MS) * 2 ** attempt);
+                        : Math.round(Math.min(config.retryMaxMs ?? RETRY_MAX_MS, (config.retryBaseMs ?? RETRY_BASE_MS) * 2 ** attempt) * (0.5 + random() / 2));
+                    // 等的是上游指定的時間（Retry-After）時，錯誤帶著它，閘道照忙線回報、轉告要等多久
+                    if (err.retryAfter > MAX_RETRY_WAIT_SECONDS) {
+                        throw fail('busy', `上游要求等 ${err.retryAfter} 秒，超過在請求裡等的上限 ${MAX_RETRY_WAIT_SECONDS} 秒`, {
+                            rounds: round, retryAfter: err.retryAfter, cause: err,
+                        });
+                    }
                     // 等不完總時限就不必等了
                     if (Date.now() + delayMs >= deadlineAt) {
-                        throw fail('timeout', `重試要等 ${delayMs}ms，超過總時限 ${config.taskTimeoutMs}ms`, { rounds: round });
+                        const upstreamWait = err.retryAfter !== undefined ? { retryAfter: err.retryAfter, cause: err } : {};
+                        throw fail('timeout', `重試要等 ${delayMs}ms，超過總時限 ${config.taskTimeoutMs}ms`, { rounds: round, ...upstreamWait });
                     }
                     attempt++;
                     onProgress({ phase: 'retrying', round, attempt, delayMs, thinkingTokens, writingTokens });
@@ -1182,6 +1254,7 @@ export async function generate(config, request, hooks = {}) {
                     } catch {
                         throw abortError(round);
                     }
+                    stats.retries++;
                     continue;
                 }
                 // 收尾：輪末的空白不是退化就照常保留，退化的一大串就丟掉；還在緩衝的開頭照常去重疊後送出
@@ -1215,20 +1288,32 @@ export async function generate(config, request, hooks = {}) {
                 }
             }
 
+            // 接續正文的這一次說寫完了，去重疊後卻沒有多出看得見的字，或只是把結尾重寫一次：答案還停在
+            // 截斷或斷線的地方，不能交出。跟被截斷一樣交給下面的分支，並算成沒有淨進展
+            const added = content.slice(roundStart.length);
+            const stalled = result.finishReason === 'stop' && plan.mode === 'writing'
+                && (!hasVisibleText(added) || repeatsTail(content.slice(0, roundStart.length), added));
+            // 同一輪前面的嘗試已經寫出新字、之後斷線重試：這一輪有進展
+            const earlierProgress = hasVisibleText(content.slice(roundBegin.length, roundStart.length));
             if (result.finishReason === 'stop') {
-                if (!content.trim()) {
+                if (!hasVisibleText(content)) {
                     throw fail('empty', '模型結束了，但沒有寫出任何正文', { rounds: round });
                 }
-                if (!jsonMode) return finish({ content, rounds: round, usage, continuations }, round);
+                if (!jsonMode && !stalled) return finish({ content, rounds: round, usage, continuations }, round);
                 // JSON 任務：拿掉 response_format 之後（退化過一次）輸出不再受約束，可能包著圍欄、
                 // 夾帶說明或根本不合法；guided decoding 也不檢查任務另外的規定。合格才收下，否則用
                 // 剩下的輪數整份重寫（下面的分支）
-                if (acceptable(content)) return finish({ content: unwrapCodeFence(content), rounds: round, usage, continuations }, round);
+                if (jsonMode) {
+                    const verdict = judge(content);
+                    if (verdict === true) return finish({ content: unwrapCodeFence(content), rounds: round, usage, continuations }, round);
+                    onReject({ round, reason: verdict });
+                    throwIfHookFailed(round);
+                }
             } else if (result.finishReason !== 'length') {
                 throw fail('stopped', `模型以 ${result.finishReason} 結束`, { rounds: round, finishReason: result.finishReason });
             }
 
-            // 被截斷：依這一輪產出了什麼決定下一輪
+            // 被截斷（或 stalled）：依這一輪產出了什麼決定下一輪
             const streakBefore = degenerateStreak;
             if (produced.trim()) {
                 let degenerated;
@@ -1297,19 +1382,23 @@ export async function generate(config, request, hooks = {}) {
             }
             // 下一輪的請求（不算提醒）會跟這一輪一模一樣：寫了字卻只是重複已寫的內容、重寫出同一份
             // 草稿、或思考了但下一輪不會帶上筆記（強度本來就是 none）。這一輪沒有淨進展：算進連續
-            // 退化，並加上提醒讓請求不同
-            if (shapeKey(roundShape()) === plan.shapeKey) {
+            // 退化，並加上提醒讓請求不同。stalled 的一輪不論請求變不變都算
+            if (earlierProgress) {
+                degenerateStreak = 0;
+            } else if (stalled || shapeKey(roundShape()) === plan.shapeKey) {
                 degenerateStreak = Math.max(degenerateStreak, streakBefore + 1);
                 nudge = true;
             }
             if (degenerateStreak >= 2) {
-                const code = !partial().trim() ? 'empty' : rejectedJson ? 'format' : 'incomplete';
-                throw fail(code, '模型連續兩輪沒有任何進展，提前結束', { rounds: round });
+                const code = !hasVisibleText(partial()) ? 'empty' : rejectedJson ? 'format' : 'incomplete';
+                // stalled：沒寫完是因為沒有進展，不是回答太長，HTTP 服務給使用者的訊息不同
+                throw Object.assign(fail(code, '模型連續兩輪沒有任何進展，提前結束', { rounds: round }), { stalled: code === 'incomplete' });
             }
         }
 
+        if (!hasVisibleText(partial())) throw fail('empty', `用完 ${config.maxRounds} 輪仍沒有看得見的正文`, { rounds: config.maxRounds });
         if (rejectedJson) throw fail('format', `用完 ${config.maxRounds} 輪，JSON 仍不符合格式`, { rounds: config.maxRounds });
-        throw fail('incomplete', `用完 ${config.maxRounds} 輪仍未寫完`, { rounds: config.maxRounds });
+        throw Object.assign(fail('incomplete', `用完 ${config.maxRounds} 輪仍未寫完`, { rounds: config.maxRounds }), { stalled: degenerateStreak > 0 });
     };
 
     try {
@@ -1319,7 +1408,8 @@ export async function generate(config, request, hooks = {}) {
         // context 放不下）不能把它蓋掉
         if (!hookFailed) await new Promise((resolve) => setImmediate(resolve));
         if (hookFailed && err !== hookError) throw attach(hookError, currentRound);
-        throw err;
+        // 例如 acceptJson 丟出的程式錯誤：一樣帶著輪數、用量與次數給呼叫端記 log
+        throw attach(err, currentRound);
     } finally {
         clearTimeout(deadlineTimer);
     }

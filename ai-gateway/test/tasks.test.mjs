@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import {
     defineTask, createCatalog, validateInput, buildMessages, finalizeOutput, inputByteLimit,
-    countChars, neutralizeDataMarkers, TaskError, SYSTEM_PROMPT,
+    countChars, createLengthGuard, cleanText, createCleanStream, neutralizeDataMarkers, TaskError, SYSTEM_PROMPT,
 } from '../src/tasks.mjs';
 
 // 特殊字元一律用 code point 產生：原始碼裡不出現看不見的字元，也不怕編輯工具把跳脫序列轉成實際字元
@@ -74,9 +74,15 @@ test('defineTask：定義寫錯在啟動時就失敗', () => {
         [{ ...base, timeoutMs: '60000' }, /timeoutMs/],
         [{ ...base, output: { type: 'html' } }, /output.type/],
         [{ ...base, output: { type: 'json', schema: { type: 'object', properties: {}, required: [] } } }, /additionalProperties/],
+        [{ ...base, output: { type: 'json', schema: listSchema, check: '依序' } }, /output\.check/],
+        [{ ...base, output: { type: 'markdown', check: () => null } }, /output\.check/],
+        [{ ...base, maxOutputChars: 0 }, /maxOutputChars/],
+        [{ ...base, maxOutputChars: 1.5 }, /maxOutputChars/],
+        [{ ...base, maxOutputChars: '800' }, /maxOutputChars/],
+        [{ ...base, output: { type: 'json', schema: listSchema }, maxOutputChars: 800 }, /maxOutputChars/],
     ];
     for (const [def, pattern] of cases) assert.throws(() => defineTask(def), pattern);
-    assert.doesNotThrow(() => defineTask({ ...base, id: 'a'.repeat(64), temperature: 0, timeoutMs: 60_000, reasoningEffort: 'medium' }));
+    assert.doesNotThrow(() => defineTask({ ...base, id: 'a'.repeat(64), temperature: 0, timeoutMs: 60_000, reasoningEffort: 'medium', maxOutputChars: 800 }));
 });
 
 test('createCatalog：id 重複時失敗', () => {
@@ -141,7 +147,8 @@ test('validateInput：多餘欄位（包括原型鏈上的名稱）、非物件�
 
 test('validateInput：長度以「字」計（國旗、家庭表情都算一個字），訊息寫出上限與目前字數', () => {
     assert.equal(countChars('🇹🇼👨\u200D👩\u200D👧中a'), 4);
-    assert.deepEqual(validateInput(jsonTask, { topic: '🇹🇼'.repeat(10) }), { topic: '🇹🇼'.repeat(10) });
+    // 國旗一個 8 bytes，10 個會超過 UTF-8 的上限（另有測試），一半換成中文
+    assert.deepEqual(validateInput(jsonTask, { topic: `${'🇹🇼'.repeat(5)}中文字測試` }), { topic: `${'🇹🇼'.repeat(5)}中文字測試` });
     assert.throws(() => validateInput(jsonTask, { topic: '一二三四五六七八九十一' }), (err) => {
         assert.equal(err.field, 'topic');
         assert.match(err.message, /主題最多 10 字（目前 11 字）/);
@@ -149,14 +156,15 @@ test('validateInput：長度以「字」計（國旗、家庭表情都算一個�
     });
 });
 
-test('validateInput：一個字疊上大量組合符號（Zalgo）另外擋下', () => {
-    // 1 個字、41 個 code point；上限 10 字 × 4
+test('validateInput：一個字疊上大量組合符號（Zalgo）由 UTF-8 的上限擋下', () => {
+    // 1 個字；組合符號一個 2 bytes，上限 10 字 × 6 = 60 bytes
     assert.throws(() => validateInput(jsonTask, { topic: `a${'\u0301'.repeat(40)}` }), (err) => {
         assert.equal(err.field, 'topic');
-        assert.match(err.message, /含有太多特殊符號/);
+        assert.match(err.message, /含有太多罕用字或特殊符號/);
         return true;
     });
-    assert.doesNotThrow(() => validateInput(jsonTask, { topic: `a${'\u0301'.repeat(39)}` }));
+    assert.throws(() => validateInput(jsonTask, { topic: `a${'\u0301'.repeat(30)}` }), /含有太多罕用字或特殊符號/);
+    assert.doesNotThrow(() => validateInput(jsonTask, { topic: `a${'\u0301'.repeat(29)}` }));
 });
 
 // hidden 放了 U+206A–206F、U+FFF9–FFFB、U+1D173–1D17A 各段的頭尾兩個字元，逐一列舉時容易漏掉這幾段。
@@ -199,15 +207,82 @@ test('countChars：數到超過 stopAfter 就停；超過上限兩倍時訊息�
     assert.throws(() => validateInput(jsonTask, { topic: 'a'.repeat(300_000) }), (err) => /主題最多 10 字（目前超過 20 字）/.test(err.message));
 });
 
-test('validateInput：code point 上限（整欄 maxLength × 4）一眼可知與需要逐一數的情況都對', () => {
+// 逐段收下時只重新切最後一個字：國旗、家庭表情、組合符號被切在兩段之間也要跟整段 countChars 一樣
+test('createLengthGuard：逐段累計的字數與整段 countChars 相同，切在字的中間也一樣；剛好用滿不算超過', () => {
+    const text = `🇹🇼🇯🇵👨\u200D👩\u200D👧e\u0301中文${'字'.repeat(10)}❤\uFE0F`;
+    const total = countChars(text);
+    const units = [...text];
+    for (let cut = 1; cut < units.length; cut++) {
+        for (const max of [total, total - 1]) {
+            const over = createLengthGuard(max);
+            const pieces = [units.slice(0, cut).join(''), ...units.slice(cut)];
+            const results = pieces.map((piece) => over(piece));
+            assert.equal(results.at(-1), max < total, `cut=${cut} max=${max}`);
+        }
+    }
+    // 一個字的兩個 UTF-16 單位分在兩段
+    const over = createLengthGuard(1);
+    assert.equal(over('\u{1F600}'.slice(0, 1)), false);
+    assert.equal(over('\u{1F600}'.slice(1)), false);
+    assert.equal(over('a'), true);
+});
+
+test('createLengthGuard：代理對切在兩段之間時，code point 不會多算', () => {
+    // 1 個字、3 個 code point（👍 加兩個膚色修飾符），每個 UTF-16 單位一段；上限 1 字 → 4 個 code point
+    const over = createLengthGuard(1);
+    assert.deepEqual('👍\u{1F3FB}\u{1F3FB}'.split('').map((unit) => over(unit)), Array(6).fill(false));
+    assert.equal(over('\u{1F3FB}\u{1F3FB}'), true);
+});
+
+test('createLengthGuard：一個字疊上大量組合符號，超過 maxChars × 4 個 code point 也算超過', () => {
+    const over = createLengthGuard(10);
+    assert.equal(over(`a${'\u0301'.repeat(39)}`), false);
+    assert.equal(over('\u0301'), true);
+});
+
+test('finalizeOutput：文字任務的回答超過 maxOutputChars 是 too_long，剛好用滿照常交出；detail 不含回答的內容', () => {
+    const capped = defineTask({ ...base, maxOutputChars: 5 });
+    assert.equal(finalizeOutput(capped, '\n一二三四五\n'), '一二三四五');
+    assert.throws(() => finalizeOutput(capped, '一二三四五六'), (err) => {
+        assert.ok(err instanceof TaskError);
+        assert.equal(err.code, 'too_long');
+        assert.doesNotMatch(err.detail, /[一二三四五六]/);
+        return true;
+    });
+});
+
+// 2026-10-31 的探測：擴展 B 區的字各疊三個星號平面的組合符號，字數與 code point 都在上限內
+test('validateInput：UTF-8 超過整欄 maxLength × 6 bytes 就擋；一般中文寫滿、表情符號照常', () => {
+    const heavy = cp(0x20021, 0x1D167, 0x1D168, 0x1D169);
+    assert.equal(Buffer.byteLength(heavy), 16);
+    // 上限 10 字 → 60 bytes
+    assert.doesNotThrow(() => validateInput(jsonTask, { topic: heavy.repeat(3) }));
+    assert.throws(() => validateInput(jsonTask, { topic: heavy.repeat(4) }), (err) => {
+        assert.ok(err instanceof TaskError);
+        assert.equal(err.code, 'invalid_input');
+        assert.equal(err.field, 'topic');
+        assert.match(err.message, /主題含有太多罕用字或特殊符號/);
+        return true;
+    });
+    assert.doesNotThrow(() => validateInput(jsonTask, { topic: '中'.repeat(10) }));
+    // 剛好 60 bytes 的收：國旗 8 bytes × 7、中 3 bytes、a 1 byte
+    assert.equal(Buffer.byteLength(`${'🇹🇼'.repeat(7)}中a`), 60);
+    assert.doesNotThrow(() => validateInput(jsonTask, { topic: `${'🇹🇼'.repeat(7)}中a` }));
+    assert.throws(() => validateInput(jsonTask, { topic: '🇹🇼'.repeat(8) }), /罕用字或特殊符號/);
+});
+
+// 輸入不另外數 code point 的依據（見 tasks.mjs 的 MAX_UTF8_BYTES_PER_CHAR）
+test('validateInput：字數沒超過、code point 超過 maxLength × 4 的欄位，一定被 UTF-8 的上限擋下', () => {
     const acute = cp(0x0301);
-    // 上限 10 字 → 40 個 code point。UTF-16 長度不超過 40：一定沒超過
-    assert.doesNotThrow(() => validateInput(jsonTask, { topic: `a${acute.repeat(39)}` }));
-    // 長度落在 41～80 之間要逐一數：星號平面的基底字佔 2 個 UTF-16 單位
-    assert.doesNotThrow(() => validateInput(jsonTask, { topic: `😀${acute.repeat(39)}` }));
-    assert.throws(() => validateInput(jsonTask, { topic: `😀${acute.repeat(40)}` }), /含有太多特殊符號/);
-    // 長度超過 80：一定超過
-    assert.throws(() => validateInput(jsonTask, { topic: `a${acute.repeat(100)}` }), /含有太多特殊符號/);
+    // 10 字、41 個 code point，bytes 最少的組合：10 個 ASCII 字母各是一個字，31 個組合符號（各 2 bytes）
+    // 接在最後一個後面，10 + 31 × 2 = 72 bytes
+    const cheapest = `${'a'.repeat(10)}${acute.repeat(31)}`;
+    assert.equal(countChars(cheapest), 10);
+    assert.equal([...cheapest].length, 41);
+    assert.throws(() => validateInput(jsonTask, { topic: cheapest }), /含有太多罕用字或特殊符號/);
+    for (const topic of [`😀${acute.repeat(40)}`, `a${acute.repeat(100)}`]) {
+        assert.throws(() => validateInput(jsonTask, { topic }), /含有太多罕用字或特殊符號/);
+    }
 });
 
 test('neutralizeDataMarkers：我們自己的資料標記（開頭與結尾）換成全形；其他的 < > 不動', () => {
@@ -263,6 +338,53 @@ test('finalizeOutput：文字任務去掉前後空白；空的算 empty', () => 
     assert.throws(() => finalizeOutput(markdownTask, ' \n '), { code: 'empty' });
 });
 
+test('finalizeOutput：只有看不見的字元（零寬空白、BOM、WORD JOINER）的答案，文字任務是 empty、JSON 是 format', () => {
+    for (const blank of ['\u200B', '\u200B\uFEFF \n', '\u2060']) {
+        assert.throws(() => finalizeOutput(markdownTask, blank), { code: 'empty' }, JSON.stringify(blank));
+        assert.throws(() => finalizeOutput(jsonTask, JSON.stringify({ title: blank, items: ['a', 'b'] })), { code: 'format' }, JSON.stringify(blank));
+    }
+    // 表情符號組合裡的 ZWJ 與異體字選擇符看不見，前後的表情符號看得見；零寬空白照輸入的規則拿掉
+    for (const [text, out] of [['a\u200Bb', 'ab'], ['👩\u200D💻', '👩\u200D💻'], ['❤\uFE0F', '❤\uFE0F']]) assert.equal(finalizeOutput(markdownTask, text), out);
+});
+
+// 模型的輸出用輸入的規則清理（cleanText）；文字任務的片段用 createCleanStream，接起來要跟整段相同
+const DIRTY = [
+    '甲\r\n乙\r丙', cp(0x0B), '丁', cp(0x2028), '戊', cp(0x202E), 'evil', cp(0x202C), cp(0xE0041, 0xE0042),
+    '👩', cp(0x200D), '💻', cp(0x200B), '❤', cp(0xFE0F, 0xFE0F), ' ', cp(0xFE0F), '葛', cp(0xE0100, 0xE0101),
+    cp(0x3164), '尾\r',
+].join('');
+
+test('cleanText：validateInput 用的就是它；雙向覆寫、Tags 區塊、零寬空白拿掉，ZWJ 與每個字的第一個選擇符留著', () => {
+    assert.equal(cleanText(DIRTY), `甲\n乙\n丙\n丁\n戊evil👩${cp(0x200D)}💻❤${cp(0xFE0F)} 葛${cp(0xE0100)}尾\n`);
+    assert.equal(validateInput(markdownTask, { question: DIRTY, context: '背景' }).question, cleanText(DIRTY).trim());
+});
+
+test('createCleanStream：不論切在哪裡（\\r\\n、代理對、選擇符前面），片段與 flush 接起來都等於整段 cleanText', () => {
+    // 第二個以選擇符開頭：開頭的選擇符要刪掉
+    for (const dirty of [DIRTY, cp(0xFE0F) + DIRTY]) {
+        const units = dirty.split('');
+        const expected = cleanText(dirty);
+        // 切成兩段：每個 UTF-16 位置都試
+        for (let cut = 0; cut <= units.length; cut++) {
+            const clean = createCleanStream();
+            const out = clean(units.slice(0, cut).join('')) + clean(units.slice(cut).join('')) + clean.flush();
+            assert.equal(out, expected, `cut=${cut}`);
+        }
+        // 每個 UTF-16 單位一段
+        const clean = createCleanStream();
+        assert.equal(units.map((u) => clean(u)).join('') + clean.flush(), expected);
+    }
+    assert.equal(cleanText(cp(0xFE0F) + DIRTY), cleanText(DIRTY));
+});
+
+test('finalizeOutput：模型輸出裡看不見的字元照輸入的規則拿掉，文字任務與 JSON 的字串值都是', () => {
+    const hidden = cp(0x202E, 0xE0041, 0x200B);
+    assert.equal(finalizeOutput(markdownTask, `答${hidden}案`), '答案');
+    assert.deepEqual(finalizeOutput(jsonTask, JSON.stringify({ title: `標${hidden}題`, items: [`a${hidden}`, 'b'] })), { title: '標題', items: ['a', 'b'] });
+    // 寫成跳脫序列的也一樣（解析之後才清）
+    assert.deepEqual(finalizeOutput(jsonTask, '{"title":"\\u202e標題","items":["a","b"]}'), { title: '標題', items: ['a', 'b'] });
+});
+
 test('finalizeOutput：JSON 任務回傳驗證過的物件', () => {
     assert.deepEqual(finalizeOutput(jsonTask, '{"title":"t","items":["a","b"]}'), { title: 't', items: ['a', 'b'] });
     assert.deepEqual(finalizeOutput(jsonTask, '```json\n{"title":"t","items":["a","b"]}\n```'), { title: 't', items: ['a', 'b'] });
@@ -297,8 +419,7 @@ const escapeNonAscii = (text) => text.replace(
     (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`,
 );
 
-// 跳脫序列的簡體字在原文裡看不見，解析之前的轉換碰不到，解碼之後才冒出來；
-// 所以解析之後要把每個字串值再轉一次，否則跳脫序列寫的「数据」解析後仍是簡體。
+// 跳脫序列的簡體字在原文裡看不見，解碼之後才冒出來，所以轉換做在解析出來的字串值上。
 test('finalizeOutput：JSON 字串值用跳脫序列寫的簡體字，解析後也轉成台灣繁體（陣列與巢狀物件都走過，非字串不動）', () => {
     const nestedTask = defineTask({
         id: 'demo-nested',
@@ -339,7 +460,7 @@ test('finalizeOutput：JSON 字串值用跳脫序列寫的簡體字，解析後�
         ],
     };
     const escaped = escapeNonAscii(JSON.stringify(answer));
-    // 整份正文是純 ASCII：解析前的轉換什麼都沒做，轉換全靠解析之後那一次
+    // 整份正文是純 ASCII，原文裡看不到任何簡體字
     assert.doesNotMatch(escaped, /[^\x00-\x7F]/);
     // 前一個字決定的字（拮据的据不轉、什么的么轉成麼、老么的么不轉）在解碼後的字串上同樣成立
     assert.deepEqual(finalizeOutput(nestedTask, escaped), {
@@ -350,9 +471,45 @@ test('finalizeOutput：JSON 字串值用跳脫序列寫的簡體字，解析後�
         ],
     });
 
-    // 同一個字串一半是原文、一半是跳脫序列：原文的部分解析前就轉了，其餘的解析後轉
+    // 同一個字串一半是原文、一半是跳脫序列
     const mixed = `{"title":"数${escapeNonAscii('据')}","items":["${escapeNonAscii('阶段')}一","阶段二"]}`;
     assert.deepEqual(finalizeOutput(jsonTask, mixed), { title: '數據', items: ['階段一', '階段二'] });
+});
+
+// toTraditional 會看前一個字。在解析前轉換原文的話，拮 寫成跳脫序列時 据 前面是 e，會被轉成「據」。
+test('finalizeOutput：同一份 JSON 的字串寫成原文、跳脫序列或一半一半，結果都相同（拮据不轉，数据、什么照轉）', () => {
+    const writings = {
+        直接寫: (word) => word,
+        全部跳脫: (word) => escapeNonAscii(word),
+        跳脫前一個字: (word) => escapeNonAscii(word.slice(0, 1)) + word.slice(1),
+        跳脫後一個字: (word) => word.slice(0, 1) + escapeNonAscii(word.slice(1)),
+    };
+    for (const [name, write] of Object.entries(writings)) {
+        const content = `{"title":"${write('拮据')}","items":["${write('数据')}","${write('什么')}"]}`;
+        assert.deepEqual(finalizeOutput(jsonTask, content), { title: '拮据', items: ['數據', '什麼'] }, name);
+    }
+});
+
+// 退化之後拿掉 response_format 的輪次沒有 guided decoding，enum 的值可能寫成簡體字或跳脫序列
+test('finalizeOutput：enum 的值寫成簡體字或跳脫序列，轉成台灣繁體之後比對得上', () => {
+    const levelTask = defineTask({
+        id: 'demo-level',
+        input: { topic: { label: '主題', maxLength: 10 } },
+        output: {
+            type: 'json',
+            schema: {
+                type: 'object',
+                properties: { level: { type: 'string', enum: ['適合', '不適合'] } },
+                required: ['level'],
+                additionalProperties: false,
+            },
+        },
+        instructions: '判斷。',
+    });
+    for (const level of ['适合', escapeNonAscii('适合'), `${escapeNonAscii('适')}合`, `适${escapeNonAscii('合')}`]) {
+        assert.deepEqual(finalizeOutput(levelTask, `{"level":"${level}"}`), { level: '適合' }, level);
+    }
+    assert.throws(() => finalizeOutput(levelTask, `{"level":"${escapeNonAscii('还行')}"}`), { code: 'format' });
 });
 
 test('finalizeOutput：解析失敗或不符規格都是 format；detail 不含模型寫的內容', () => {
@@ -369,6 +526,91 @@ test('finalizeOutput：解析失敗或不符規格都是 format；detail 不含�
     });
     // JSON 的 null 不能變成 TypeError（那會被當成程式錯誤）
     assert.throws(() => finalizeOutput(jsonTask, 'null'), { code: 'format' });
+});
+
+// JSON.parse 本身不怕深層巢狀，帶著 reviver 才會用完堆疊；問題出在模型的輸出，不是程式錯誤
+test('finalizeOutput：極深的巢狀讓 reviver 丟出 RangeError，照樣是 format', () => {
+    const deep = `${'['.repeat(20_000)}${']'.repeat(20_000)}`;
+    assert.throws(() => finalizeOutput(jsonTask, deep), (err) => {
+        assert.equal(err.code, 'format');
+        assert.match(err.detail, /^RangeError（正文 \d+ 字）$/);
+        return true;
+    });
+});
+
+// 鍵是規格裡的屬性名稱，照原樣比對：簡體字寫的鍵不會被轉成規格裡的繁體鍵
+test('finalizeOutput：只轉換字串值，鍵不轉換', () => {
+    const keyTask = defineTask({
+        id: 'demo-key',
+        input: { topic: { label: '主題', maxLength: 10 } },
+        output: { type: 'json', schema: { type: 'object', properties: { '數據': { type: 'string' } }, required: ['數據'], additionalProperties: false } },
+        instructions: '回答。',
+    });
+    assert.deepEqual(finalizeOutput(keyTask, '{"數據":"数据"}'), { '數據': '數據' });
+    assert.throws(() => finalizeOutput(keyTask, '{"数据":"數據"}'), (err) => err.code === 'format' && err.detail === '$.數據 缺少');
+});
+
+test('finalizeOutput：任務的 check 只拿到符合 schema 的值；不通過是 format，detail 是它回傳的描述', () => {
+    const checked = [];
+    const distinctTask = defineTask({
+        id: 'demo-distinct',
+        input: { topic: { label: '主題', maxLength: 10 } },
+        output: {
+            type: 'json',
+            schema: listSchema,
+            check: (value) => {
+                checked.push(value);
+                return new Set(value.items).size === value.items.length ? null : '$.items 有重複的項目';
+            },
+        },
+        instructions: '依主題列出不重複的重點。',
+    });
+    assert.deepEqual(finalizeOutput(distinctTask, '{"title":"t","items":["a","b"]}'), { title: 't', items: ['a', 'b'] });
+    assert.throws(() => finalizeOutput(distinctTask, '{"title":"t","items":["a","a"]}'), (err) => {
+        assert.equal(err.code, 'format');
+        assert.equal(err.detail, '$.items 有重複的項目');
+        return true;
+    });
+    assert.equal(checked.length, 2);
+    assert.throws(() => finalizeOutput(distinctTask, '{"title":"t","items":["a"]}'), { code: 'format' });
+    assert.equal(checked.length, 2, '不符 schema 的不交給 check');
+    // 先出現的草稿不通過 check，後面的定稿通過：收下定稿
+    const drafts = '草稿 {"title":"t","items":["a","a"]} 定稿 {"title":"t","items":["a","b"]}';
+    assert.deepEqual(finalizeOutput(distinctTask, drafts), { title: 't', items: ['a', 'b'] });
+});
+
+test('finalizeOutput：format 錯誤帶著可以進 log 的來源、路徑與規則代號（解析不了的是錯誤的種類）', () => {
+    const checkedTask = defineTask({
+        id: 'demo-checked',
+        input: { topic: { label: '主題', maxLength: 10 } },
+        output: { type: 'json', schema: listSchema, check: (value) => `$.items[0] 應為 好，實際是 ${value.items[0]}` },
+        instructions: '依主題列出重點。',
+    });
+    const fieldsOf = (fn) => {
+        try {
+            fn();
+        } catch (err) {
+            assert.equal(err.code, 'format');
+            return [err.source, err.path, err.rule];
+        }
+        throw new Error('沒有丟出錯誤');
+    };
+    assert.deepEqual(fieldsOf(() => finalizeOutput(jsonTask, '{"title":"t","items":["a"]}')), ['schema', '$.items', 'min_items']);
+    assert.deepEqual(fieldsOf(() => finalizeOutput(checkedTask, '{"title":"t","items":["我的病史","b"]}')), ['check', '$.items[0]', 'check']);
+    assert.deepEqual(fieldsOf(() => finalizeOutput(jsonTask, '{"title": 我的病史}')), ['parse', undefined, 'SyntaxError']);
+});
+
+// 當成 format 的話，生成階段會一直重寫到用完輪數，log 也只看得到格式錯誤
+test('finalizeOutput：check 丟出的例外是程式錯誤，原樣丟出，不是 format', () => {
+    const brokenTask = defineTask({
+        id: 'demo-broken-check',
+        input: { topic: { label: '主題', maxLength: 10 } },
+        output: { type: 'json', schema: listSchema, check: (value) => value.missing.length },
+        instructions: '依主題列出重點。',
+    });
+    assert.throws(() => finalizeOutput(brokenTask, '{"title":"t","items":["a","b"]}'), (err) => err instanceof TypeError && !(err instanceof TaskError));
+    // 解析不了照舊是 format
+    assert.throws(() => finalizeOutput(brokenTask, '{"title":'), { code: 'format' });
 });
 
 test('finalizeOutput：說明文字裡的括號吞不掉後面真正的答案；不符規格的片段不會被當成答案', () => {

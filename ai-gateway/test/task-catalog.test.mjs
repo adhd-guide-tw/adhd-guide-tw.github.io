@@ -79,6 +79,22 @@ test('都是文字任務：結果是去掉前後空白的字串', () => {
     }
 });
 
+// trim() 去不掉零寬空白（U+200B）與 word joiner（U+2060）
+test('只有看不見的字元的回答不收', () => {
+    for (const task of catalog.values()) {
+        assert.throws(() => finalizeOutput(task, '\u200B\u2060'), { code: 'empty' }, task.id);
+    }
+});
+
+test('maxOutputChars 是指令寫的字數上限的 4 倍，看診筆記以輸入上限 2000 字計；超過就是 too_long', () => {
+    const caps = Object.fromEntries([...catalog.values()].map((t) => [t.id, t.maxOutputChars]));
+    assert.deepEqual(caps, { 'adhd-faq': 2400, 'adhd-task-slicer': 1600, 'adhd-visit-notes': 8000 });
+    assert.match(catalog.get('adhd-faq').instructions, /大約 300 到 600 字/);
+    assert.match(catalog.get('adhd-task-slicer').instructions, /全文 400 字以內/);
+    assert.equal(catalog.get('adhd-visit-notes').input.notes.maxLength * 4, 8000);
+    assert.throws(() => finalizeOutput(catalog.get('adhd-task-slicer'), '字'.repeat(1601)), { code: 'too_long' });
+});
+
 // 頁面不另外顯示免責聲明，只靠模型附上。
 test('adhd-faq：指令要求在結尾用分隔線隔開，附上含 119 與 1925 的免責聲明', () => {
     const { instructions } = catalog.get('adhd-faq');

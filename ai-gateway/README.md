@@ -6,7 +6,7 @@ ADHD 光譜網站上的三個 AI 表單都呼叫這個服務。它拿著 key，�
 瀏覽器 → Tailscale Funnel → ai-gateway（k3s）→ WinLab
 ```
 
-多這一層有三個原因。key 不能放進公開的 JavaScript。WinLab 只接受校內網段的來源 IP，訪客在家連不到。單次輸出最多 8192 tokens，思考也算在內，答案被截斷時要有人請模型接著寫。
+多這一層有三個原因。key 不能放進公開的 JavaScript。WinLab 只接受校內網段的來源 IP，訪客在家連不到。思考也算在輸出長度裡，一輪寫不完的答案要有人請模型接著寫。
 
 瀏覽器只送任務代號和使用者輸入（`POST /v1/tasks/<id>`），回應是 SSE。prompt、格式與字數上限都由這裡決定，不收任意 prompt：收了就成了誰都能用的免費 LLM 代理，CORS 擋不住 curl。
 

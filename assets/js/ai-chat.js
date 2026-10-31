@@ -22,13 +22,24 @@ const ADHDChat = {
             .replace(/'/g, '&#39;');
     },
 
+    // 沒寫完的回答可能停在粗體中間（「**接下來 2 分鐘」），畫面上會留著字面的 **。最後一行的 ** 是
+    // 奇數個時拿掉最後一個；後面接著空白、又不在行尾的不是記號（「3 ** 2」），留著。
+    dropUnclosedBold(text) {
+        const start = text.lastIndexOf('\n') + 1;
+        if ((text.slice(start).match(/\*\*/g) || []).length % 2 === 0) return text;
+        const at = text.lastIndexOf('**');
+        if (/\s/.test(text.charAt(at + 2))) return text;
+        return text.slice(0, at) + text.slice(at + 2);
+    },
+
     /**
      * markdownToHtml 把 AI 回答的 Markdown 子集轉成 HTML：粗體、分隔線、有序與無序清單、段落。
      * AI 的輸出不可信，先跳脫再套上自己寫死的標籤，模型塞不進可執行的 HTML。
-     * @param {string} text @returns {string}
+     * partial 表示回答沒寫完（草稿、斷掉的回答）。
+     * @param {string} text @param {boolean} [partial] @returns {string}
      */
-    markdownToHtml(text) {
-        let html = this.escapeHtml(text).replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#BF4040]">$1</strong>');
+    markdownToHtml(text, partial = false) {
+        let html = this.escapeHtml(partial ? this.dropUnclosedBold(text) : text).replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#BF4040]">$1</strong>');
         html = html.replace(/^---$/gm, '<hr class="my-4 border-gray-300">');
 
         const lines = html.split('\n');
@@ -104,18 +115,27 @@ const ADHDChat = {
         const task = this.tasks[promptType] || this.tasks.faq;
 
         outputElement.innerHTML = '';
-        const { result } = await PlatformAI.runTask(task.id, { [task.field]: userMessage }, {
-            signal,
-            onProgress,
-            onDelta: (chunk, text) => {
-                outputElement.innerHTML = this.markdownToHtml(text);
-                if (onChunk) onChunk(chunk, text);
-            }
-        });
-
-        // 以 done 的結果為準，片段接起來的只是草稿。
-        outputElement.innerHTML = this.markdownToHtml(result);
-        return result;
+        const draw = (chunk, text) => {
+            outputElement.innerHTML = this.markdownToHtml(text, true);
+        };
+        // 草稿每個畫面最多畫一次。剛部署時瀏覽器快取裡的 platform-ai.js 可能還沒有 perFrame，那時每段都畫。
+        const drawDraft = PlatformAI.perFrame ? PlatformAI.perFrame(draw) : Object.assign(draw, { cancel() {} });
+        try {
+            const { result } = await PlatformAI.runTask(task.id, { [task.field]: userMessage }, {
+                signal,
+                onProgress,
+                onDelta: (chunk, text) => {
+                    drawDraft(chunk, text);
+                    if (onChunk) onChunk(chunk, text);
+                }
+            });
+            // 以 done 的結果為準，片段接起來的只是草稿。
+            outputElement.innerHTML = this.markdownToHtml(result);
+            return result;
+        } finally {
+            // 還排著的草稿會蓋掉最後的答案
+            drawDraft.cancel();
+        }
     },
 
     /**
@@ -146,6 +166,9 @@ const ADHDChat = {
         }
 
         const buttonTextEl = button.querySelector('.button-text') || button;
+        // 輸入框、按鈕與結果所在的最小區塊。焦點在這裡面時按 Esc 等於按取消。
+        let scope = button.parentElement;
+        while (scope && !(scope.contains(input) && scope.contains(output))) scope = scope.parentElement;
 
         // 閘道忙的時候要等一兩分鐘，按鈕下方顯示排隊名次、已等待幾秒和取消鈕。
         const progressEl = document.createElement('div');
@@ -188,7 +211,8 @@ const ADHDChat = {
             try {
                 progress = PlatformAI.mountProgress(progressEl, {
                     onCancel: () => controller.abort(),
-                    focusTarget: button
+                    focusTarget: button,
+                    escapeScope: scope
                 });
                 await this.sendMessage(userText, promptType, output, {
                     signal: controller.signal,
@@ -202,8 +226,15 @@ const ADHDChat = {
                 if (resultContainer) resultContainer.classList.remove('hidden');
             } catch (error) {
                 if (progress) progress.finish();
-                output.innerHTML = '';
-                if (resultContainer) resultContainer.classList.add('hidden');
+                // 錯誤帶著已經收到的答案（沒寫完、斷線、逾時）就留在畫面上，標明沒有寫完；使用者取消時沒有。
+                if (error && error.partial) {
+                    output.innerHTML = '<p class="text-sm font-semibold text-gray-600">AI 的回答（沒有寫完）</p>'
+                        + this.markdownToHtml(error.partial, true);
+                    if (resultContainer) resultContainer.classList.remove('hidden');
+                } else {
+                    output.innerHTML = '';
+                    if (resultContainer) resultContainer.classList.add('hidden');
+                }
                 const text = typeof PlatformAI === 'undefined' ? this.fallbackErrorText : PlatformAI.describeError(error);
                 showError(text, Boolean(error && error.name === 'AbortError'));
             } finally {
