@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { assertSupportedSchema, validate, extractJson, toResponseFormat, anchorPattern, SchemaMismatch } from '../src/schema.mjs';
+import { assertSupportedSchema, validate, extractJson, toResponseFormat, anchorPattern, SchemaMismatch, schemaPath } from '../src/schema.mjs';
 
 const listSchema = {
     type: 'object',
@@ -187,6 +187,18 @@ test('validate：字數與項目數的上下限都含邊界（剛好等於上限
     assert.match(validate({ type: 'string', minLength: 1 }, '  '), /只有空白/);
 });
 
+// trim() 不去掉零寬空白（U+200B）、WORD JOINER（U+2060）這類格式字元。哪些字看得見由 visible-text.mjs
+// 判斷，逐字的情況在它自己的測試；這裡確認 validate 用的是它
+test('validate：必填字串只有空白或看不見的字元都不收；夾著格式字元的字、表情符號組合照收', () => {
+    const required = { type: 'string', minLength: 1 };
+    const blanks = ['\u200B', '\u200B\uFEFF \n', '\u2060', '\u00AD\u3164\u0085', '\u2800\uFFFC\u3000', '\u0301', '\uE000'];
+    for (const blank of blanks) assert.match(validate(required, blank), /\$ 只有空白或看不見的字元/, JSON.stringify(blank));
+    for (const text of ['a\u200Bb', '👩\u200D💻', '❤\uFE0F', '\u200B答\u200B']) assert.equal(validate(required, text), null, JSON.stringify(text));
+    // 沒有下限、或下限是 0 的字串不檢查
+    assert.equal(validate({ type: 'string' }, '\u200B'), null);
+    assert.equal(validate({ type: 'string', minLength: 0 }, '\u200B'), null);
+});
+
 test('validate：enum（字串與數字都檢查）、pattern 以 u 模式比對', () => {
     assert.match(validate({ type: 'string', enum: ['S', 'T'] }, 'X'), /不在允許的值/);
     assert.match(validate({ type: 'integer', enum: [1, 2] }, 3), /不在允許的值/);
@@ -238,6 +250,122 @@ test('extractJson：都不符合時丟出最前面那個候選的錯誤；不符
     assert.throws(() => extractJson('以下是結果：{"title":"t","items":["a"]}', listSchema), (err) => err instanceof SchemaMismatch);
     assert.throws(() => extractJson('null', listSchema), (err) => err instanceof SchemaMismatch && /實際是 null/.test(err.problem));
     assert.throws(() => extractJson('完全沒有 JSON', listSchema), SyntaxError);
+});
+
+test('extractJson：check 在 schema 通過後才呼叫；它不通過的候選跳過，都不通過時丟出它的描述', () => {
+    const answer = { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false };
+    const seen = [];
+    const check = (value) => {
+        seen.push(value.answer);
+        return value.answer === '好' ? null : '$.answer 應為 好';
+    };
+    assert.deepEqual(extractJson('草稿 {"answer": 1} {"answer":"壞"} 定稿 {"answer":"好"}', answer, { check }), { answer: '好' });
+    assert.deepEqual(seen, ['壞', '好'], '不符 schema 的候選不交給 check');
+    assert.throws(() => extractJson('{"answer":"壞"}', answer, { check }), (err) => {
+        assert.ok(err instanceof SchemaMismatch);
+        assert.equal(err.problem, '$.answer 應為 好');
+        return true;
+    });
+    // 只有 null 算通過：check 寫錯、回傳空字串或忘了回傳時不會默默放行（整段與候選兩條路都是）
+    for (const text of ['{"answer":"好"}', '前言 {"answer":"好"}']) {
+        for (const result of ['', undefined]) {
+            assert.throws(() => extractJson(text, answer, { check: () => result }), SchemaMismatch, `${text}：${result}`);
+        }
+    }
+});
+
+test('SchemaMismatch：來源（schema 或 check）、規則的代號與路徑，路徑只有規格裡的名稱與索引', () => {
+    const schema = {
+        type: 'object',
+        properties: {
+            title: { type: 'string', minLength: 1, maxLength: 5, pattern: '[^x]*' },
+            kind: { type: 'string', enum: ['a', 'b'] },
+            n: { type: 'number' },
+            k: { type: 'integer' },
+            items: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 3 },
+        },
+        required: ['title', 'kind', 'n', 'k', 'items'],
+        additionalProperties: false,
+    };
+    const ok = { title: 't', kind: 'a', n: 1, k: 1, items: ['a', 'b'] };
+    const cases = [
+        [{ ...ok, title: 1 }, '$.title', 'type'],
+        [{ ...ok, title: '' }, '$.title', 'min_length'],
+        [{ ...ok, title: '一二三四五六' }, '$.title', 'max_length'],
+        [{ ...ok, title: 'x' }, '$.title', 'pattern'],
+        [{ ...ok, title: ' ' }, '$.title', 'blank'],
+        [{ ...ok, kind: 'c' }, '$.kind', 'enum'],
+        [{ ...ok, k: 2 ** 60 }, '$.k', 'safe_integer'],
+        [{ ...ok, items: ['a'] }, '$.items', 'min_items'],
+        [{ ...ok, items: ['a', 'b', 'c', 'd'] }, '$.items', 'max_items'],
+        [{ ...ok, items: ['a', 2] }, '$.items[1]', 'type'],
+        [{ title: 't', kind: 'a', n: 1, k: 1 }, '$.items', 'required'],
+        [{ ...ok, 王小明: 1 }, '$', 'additional'],
+    ];
+    for (const [value, path, rule] of cases) {
+        assert.throws(() => extractJson(JSON.stringify(value), schema), (err) => {
+            assert.ok(err instanceof SchemaMismatch);
+            assert.deepEqual([err.source, err.path, err.rule], ['schema', path, rule], err.problem);
+            return true;
+        }, rule);
+    }
+    assert.throws(() => extractJson('{"title":"t","kind":"a","n":1e400,"k":1,"items":["a","b"]}', schema), { source: 'schema', path: '$.n', rule: 'finite' });
+    // check 的描述開頭若是規格裡的路徑就記下路徑，其他一律不收；描述本身照舊放在 problem
+    for (const [problem, path] of [
+        ['$.items[1] 不能跟前一項相同', '$.items[1]'],
+        ['$.title 應為 好，實際是 模型寫的內容', '$.title'],
+        ['$.王小明 不對', undefined],
+        ['$.titlex 不對', undefined],
+        ['$.title.length 不對', undefined],
+        ['模型寫的內容 $.title', undefined],
+    ]) {
+        assert.throws(() => extractJson(JSON.stringify(ok), schema, { check: () => problem }), (err) => {
+            assert.deepEqual([err.source, err.path, err.rule, err.problem], ['check', path, 'check', problem]);
+            return true;
+        }, problem);
+    }
+});
+
+test('schemaPath：路徑的每一段都要是規格裡的屬性名稱或陣列索引，否則回傳 undefined', () => {
+    const schema = {
+        type: 'object',
+        properties: {
+            '數據': { type: 'string' },
+            'a.b': { type: 'string' },
+            plan: { type: 'array', maxItems: 4, items: { type: 'object', properties: { week: { type: 'string' } }, required: ['week'], additionalProperties: false } },
+        },
+        required: ['數據', 'a.b', 'plan'],
+        additionalProperties: false,
+    };
+    for (const path of ['$', '$.數據', '$.a.b', '$.plan', '$.plan[3]', '$.plan[0].week']) assert.equal(schemaPath(schema, path), path);
+    for (const path of [undefined, '', '$.', '$.a', '$.plan[4]', '$.plan[-1]', '$.plan[01]', '$.plan.week', '$.plan[0].week.x', '$.數據[0]', '$.plan[0]week', 'x$.plan', '$.plan[0] ']) {
+        assert.equal(schemaPath(schema, path), undefined, String(path));
+    }
+});
+
+// 整段的值丟出例外時，若當成解析不了，會改挑後面通過的片段，例外就被吞掉了
+test('extractJson：check 丟出的例外照樣往外丟，不算解析不了，也不改挑別的候選', () => {
+    const schema = {
+        type: 'object',
+        properties: { answer: { type: 'string' }, inner: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } },
+        required: ['answer'],
+        additionalProperties: false,
+    };
+    const check = (value) => {
+        if (value.answer === '壞') throw new TypeError('check 壞了');
+        return null;
+    };
+    for (const text of ['{"answer":"壞","inner":{"answer":"好"}}', '前言 {"answer":"壞","inner":{"answer":"好"}}']) {
+        assert.throws(() => extractJson(text, schema, { check }), TypeError, text);
+    }
+});
+
+test('extractJson：reviver 交給 JSON.parse，每個候選都先經過它，schema 與 check 驗的是它處理過的值', () => {
+    const answer = { type: 'object', properties: { answer: { type: 'string', enum: ['好'] } }, required: ['answer'], additionalProperties: false };
+    const reviver = (key, value) => (value === 'ok' ? '好' : value);
+    const check = (value) => (value.answer === '好' ? null : '$.answer 沒有經過 reviver');
+    assert.deepEqual(extractJson('{"answer":"ok"}', answer, { reviver, check }), { answer: '好' });
+    assert.deepEqual(extractJson('前言 [1] {"answer":"ok"} 後記', answer, { reviver, check }), { answer: '好' });
 });
 
 test('extractJson：最多試 32 個起點', () => {

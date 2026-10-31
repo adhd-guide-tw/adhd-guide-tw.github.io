@@ -15,16 +15,17 @@
  *   LLM_MODEL               模型（預設 qwen3.8-27b-fp8）
  *   LLM_REASONING_EFFORT    思考強度，WinLab 只收 none／low／medium／xhigh（預設 xhigh；不分大小寫）
  *   LLM_CONTINUATION_EFFORT 接續輪的思考強度（預設 none，理由見 generate.mjs）
- *   LLM_MAX_TOKENS          每一輪的 max_tokens 上限，含思考（預設 8192 = WinLab 單次上限）
- *   LLM_CONTEXT_TOKENS      模型的 context 長度（預設 32768，2026-10-21 實測）
+ *   LLM_MAX_TOKENS          每一輪的 max_tokens 上限，含思考（預設 8192，上限 16384）
+ *   LLM_CONTEXT_TOKENS      模型的 context 長度（預設 65536，2026-10-31 實測）
  *   LLM_MAX_ROUNDS          被截斷時連同第一輪最多跑幾輪（預設 3）
  *   LLM_TASK_TIMEOUT_MS     一個任務所有輪合計的時限（預設 900000 = 15 分鐘）
- *   LLM_IDLE_TIMEOUT_MS     上游多久沒送任何位元組就當成卡死（預設 180000，上限 300000）
+ *   LLM_IDLE_TIMEOUT_MS     上游多久沒有進展就當成卡死（預設 180000，上限 300000）。收到標頭之前看有沒有
+ *                           回應，之後看有沒有送來思考、正文或 usage
  *
- * 預設的輪數與時限是一起選的：被截斷的那一輪一定用滿 8192 tokens，以實測約 46 tokens/s
+ * 預設的輪數與時限是一起選的：被截斷的那一輪一定用滿 LLM_MAX_TOKENS（預設 8192 tokens），以實測約 46 tokens/s
  * 計一輪約 3 分鐘；WinLab 忙碌時每一輪的第一個位元組還要再等一兩分鐘（2026-10-22 實測
  * 82.6 秒），3 輪都寫滿、沒有額外請求（探測、重試）時約 13 分鐘，所以預設 15 分鐘。
- * 輪數調高時時限要跟著調。
+ * 輪數或 LLM_MAX_TOKENS 調高時，任務時限與 SHUTDOWN_GRACE_MS 要跟著調。
  */
 import { readFileSync } from 'node:fs';
 
@@ -32,13 +33,19 @@ import { readFileSync } from 'node:fs';
 // 所以不能照 OpenAI 的文件猜。由弱到強排列。
 export const EFFORTS = ['none', 'low', 'medium', 'xhigh'];
 
-// WinLab 單次輸出上限，含思考：max_tokens=8193 回 400「單次輸出上限為 8192 tokens(含思考)」。
-// 設定超過這個值等於每個請求都必定失敗，所以直接當成合法範圍的上界。
-export const WINLAB_MAX_TOKENS = 8192;
+// 每一輪的 max_tokens（含思考）。2026-10-31 實測 WinLab 收 8193 與 16384，max_tokens 12000 的請求
+// 寫了 8888 tokens。預設 8192：輪數、任務時限與關機寬限期照它算。上限 16384：一個任務最多收
+// 輪數 × max_tokens × 128 字元，pod 只有 256 MiB
+export const DEFAULT_MAX_TOKENS = 8192;
+export const MAX_TOKENS_LIMIT = 16_384;
 
 // undici（Node 的 fetch）自己的 headersTimeout／bodyTimeout 預設 300 秒，換不掉
 // （閘道沒有相依套件、不自建 Agent）。閒置逾時設得比它長也沒有意義，只會被它先截斷。
 export const MAX_IDLE_TIMEOUT_MS = 300_000;
+
+// 前端（assets/js/platform-ai.js 的 DEFAULT_TASK_TIMEOUT_MS）等一個任務最多這麼久。閘道的映像檔裡
+// 沒有那個檔案，這裡抄一份，兩邊是否相同由 test/source-hygiene.test.mjs 檢查
+export const FRONTEND_TASK_TIMEOUT_MS = 20 * 60 * 1000;
 
 // 貼上 key 時常夾帶的零寬字元（ZWSP、ZWNJ、ZWJ、WORD JOINER、BOM）：key 本身不會有這些字，
 // 在哪裡都清掉。一律寫成跳脫序列：直接寫字元本體的話畫面上看不見，被編輯器正規化掉也沒人發現
@@ -188,8 +195,9 @@ export function loadLlmConfig(env = process.env, { warn = (msg) => console.warn(
         reasoningEffort: toEffort(env, 'LLM_REASONING_EFFORT', 'xhigh', warn),
         continuationEffort: toEffort(env, 'LLM_CONTINUATION_EFFORT', 'none', warn),
         // 一定要送 max_tokens：不送的話 WinLab 閘道預設只給 2048，思考完答案就被截斷
-        maxTokens: toInt(env, 'LLM_MAX_TOKENS', WINLAB_MAX_TOKENS, 1, WINLAB_MAX_TOKENS, warn),
-        contextTokens: toInt(env, 'LLM_CONTEXT_TOKENS', 32_768, 4_096, 1_048_576, warn),
+        maxTokens: toInt(env, 'LLM_MAX_TOKENS', DEFAULT_MAX_TOKENS, 1, MAX_TOKENS_LIMIT, warn),
+        // 2026-10-31 實測：輸入 60016 tokens 收，65529 加上輸出 8 回 400；GET /v1/models 的 max_input_tokens 是 65536
+        contextTokens: toInt(env, 'LLM_CONTEXT_TOKENS', 65_536, 4_096, 1_048_576, warn),
         maxRounds: toInt(env, 'LLM_MAX_ROUNDS', 3, 1, 8, warn),
         // setTimeout 最多 2^31-1 毫秒，超過會變成馬上觸發
         taskTimeoutMs: toInt(env, 'LLM_TASK_TIMEOUT_MS', 900_000, 10_000, 2_147_483_647, warn),
@@ -276,12 +284,12 @@ function toCidrs(env, name, warn) {
  *   RATE_LIMIT_MAX        每個來源在窗口內最多開始幾個任務（預設 100）。宿舍、公司與行動網路
  *                         常有許多人共用一個對外 IP，這個數字是整個網路一起用的；沒用到 GPU 的
  *                         請求（排隊已滿、排到逾時、排隊中離開，或上游在第一個 token 之前就回
- *                         忙線、連不上、逾時）不計
+ *                         忙線、連不上、逾時，或回了錯誤頁、看不懂的串流）不計
  *   REQUEST_LIMIT_PER_MINUTE 每個來源每分鐘最多送幾個任務請求，不論成敗（預設 120）。在讀 body
  *                         之前就檢查：驗證失敗的請求不計入上面的次數，沒有這一道的話，連續送
  *                         超大的錯誤請求就能把 CPU 吃滿
  *   CLIENT_MAX_INFLIGHT   名額已滿時，每個來源最多佔用幾個（含排隊；預設 6）
- *   BODY_TIMEOUT_MS       收完請求 body 的期限（預設 10000）。body 最多十幾 KB，慢慢上傳的連線
+ *   BODY_TIMEOUT_MS       收完請求 body 的期限（預設 10000）。body 最多約 95 KiB（adhd-visit-notes），慢慢上傳的連線
  *                         佔著記憶體，不必等太久。Node 自己的 requestTimeout 在開始關機之後就
  *                         不再檢查，這個期限由閘道自己計時
  *   HEARTBEAT_MS          SSE 心跳間隔（預設 15000，上限 30000）。前端（assets/js/platform-ai.js

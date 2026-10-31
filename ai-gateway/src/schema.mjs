@@ -16,6 +16,8 @@
  * 也不該靠自己寫 ^ 與 $（^a|b$ 這種寫法看起來錨定了，其實只錨定了兩個分支的各一端）。
  */
 
+import { hasVisibleText } from './visible-text.mjs';
+
 const TYPES = new Set(['object', 'array', 'string', 'integer', 'number', 'boolean']);
 // 每個關鍵字只能用在哪一種 type 上（type、enum、description 哪裡都能用）
 const KEYWORD_TYPES = {
@@ -132,30 +134,36 @@ function typeOf(value) {
  * 錯誤描述會進 log：只寫路徑與規格，不寫值；多出來的屬性名稱是模型寫的，也不寫。
  */
 export function validate(schema, value, path = '$') {
+    return findProblem(schema, value, path)?.problem ?? null;
+}
+
+// validate 的本體：第一個錯誤的 { path, rule, problem }，rule 是給 log 的固定代號
+function findProblem(schema, value, path) {
+    const fail = (rule, problem, at = path) => ({ path: at, rule, problem: `${at} ${problem}` });
     const actual = typeOf(value);
     const expected = schema.type;
     const typeOk = expected === 'number' ? (actual === 'integer' || actual === 'number') : actual === expected;
-    if (!typeOk) return `${path} 應為 ${expected}，實際是 ${actual}`;
+    if (!typeOk) return fail('type', `應為 ${expected}，實際是 ${actual}`);
     // JSON.parse('1e400') 是 Infinity，傳到瀏覽器變成 null；超過安全範圍的整數會無聲地失去精度
-    if (expected === 'number' && !Number.isFinite(value)) return `${path} 不是有限的數字`;
-    if (expected === 'integer' && !Number.isSafeInteger(value)) return `${path} 超出安全整數範圍`;
+    if (expected === 'number' && !Number.isFinite(value)) return fail('finite', '不是有限的數字');
+    if (expected === 'integer' && !Number.isSafeInteger(value)) return fail('safe_integer', '超出安全整數範圍');
 
-    if (schema.enum && !schema.enum.includes(value)) return `${path} 不在允許的值之中`;
+    if (schema.enum && !schema.enum.includes(value)) return fail('enum', '不在允許的值之中');
 
     if (expected === 'string') {
         const length = [...value].length;
-        if (schema.minLength !== undefined && length < schema.minLength) return `${path} 太短（${length} < ${schema.minLength}）`;
-        if (schema.maxLength !== undefined && length > schema.maxLength) return `${path} 太長（${length} > ${schema.maxLength}）`;
-        if (schema.pattern !== undefined && !patternRegExp(schema.pattern).test(value)) return `${path} 格式不符`;
-        // 只有空白的字串對使用者來說跟沒有一樣
-        if (schema.minLength >= 1 && !value.trim()) return `${path} 只有空白`;
+        if (schema.minLength !== undefined && length < schema.minLength) return fail('min_length', `太短（${length} < ${schema.minLength}）`);
+        if (schema.maxLength !== undefined && length > schema.maxLength) return fail('max_length', `太長（${length} > ${schema.maxLength}）`);
+        if (schema.pattern !== undefined && !patternRegExp(schema.pattern).test(value)) return fail('pattern', '格式不符');
+        // 只有空白或看不見的字元的字串，對使用者來說跟沒有一樣
+        if (schema.minLength >= 1 && !hasVisibleText(value)) return fail('blank', '只有空白或看不見的字元');
     }
 
     if (expected === 'array') {
-        if (schema.minItems !== undefined && value.length < schema.minItems) return `${path} 項目太少（${value.length} < ${schema.minItems}）`;
-        if (schema.maxItems !== undefined && value.length > schema.maxItems) return `${path} 項目太多（${value.length} > ${schema.maxItems}）`;
+        if (schema.minItems !== undefined && value.length < schema.minItems) return fail('min_items', `項目太少（${value.length} < ${schema.minItems}）`);
+        if (schema.maxItems !== undefined && value.length > schema.maxItems) return fail('max_items', `項目太多（${value.length} > ${schema.maxItems}）`);
         for (let i = 0; i < value.length; i++) {
-            const err = validate(schema.items, value[i], `${path}[${i}]`);
+            const err = findProblem(schema.items, value[i], `${path}[${i}]`);
             if (err) return err;
         }
     }
@@ -163,15 +171,46 @@ export function validate(schema, value, path = '$') {
     if (expected === 'object') {
         const props = schema.properties || {};
         for (const key of schema.required || []) {
-            if (!Object.hasOwn(value, key)) return `${path}.${key} 缺少`;
+            if (!Object.hasOwn(value, key)) return fail('required', '缺少', `${path}.${key}`);
         }
         for (const key of Object.keys(value)) {
-            if (!Object.hasOwn(props, key)) return `${path} 有規格外的屬性`;
-            const err = validate(props[key], value[key], `${path}.${key}`);
+            if (!Object.hasOwn(props, key)) return fail('additional', '有規格外的屬性');
+            const err = findProblem(props[key], value[key], `${path}.${key}`);
             if (err) return err;
         }
     }
     return null;
+}
+
+/**
+ * schemaPath 回傳 path 本身，前提是它從 $ 開始、每一段都是 schema 裡的屬性名稱（.名稱）或陣列索引
+ * （[n]，小於 maxItems），否則回傳 undefined。check 的描述是任務自己寫的，可能夾帶模型寫的值；
+ * 這樣取出的路徑只由規格裡的名稱與數字組成，可以進 log。
+ * @param {object} schema @param {unknown} path @returns {string|undefined}
+ */
+export function schemaPath(schema, path) {
+    if (typeof path !== 'string' || !path.startsWith('$')) return undefined;
+    let node = schema;
+    let at = 1;
+    while (at < path.length) {
+        if (node.type === 'array' && path[at] === '[') {
+            const index = /^\[(0|[1-9]\d{0,5})\]/.exec(path.slice(at));
+            if (!index || (node.maxItems !== undefined && Number(index[1]) >= node.maxItems)) return undefined;
+            node = node.items;
+            at += index[0].length;
+            continue;
+        }
+        if (node.type !== 'object' || path[at] !== '.') return undefined;
+        // 名稱本身可能含 . 或 [：從最長的開始比，接著必須是路徑的結尾或下一段的開頭
+        const rest = path.slice(at + 1);
+        const key = Object.keys(node.properties)
+            .sort((a, b) => b.length - a.length)
+            .find((name) => rest.startsWith(name) && /^(?:$|[.[])/.test(rest.slice(name.length)));
+        if (key === undefined) return undefined;
+        node = node.properties[key];
+        at += 1 + key.length;
+    }
+    return path;
 }
 
 // 送出去的 schema 裡每個 pattern 都換成整串比對的寫法（不改動任務定義本身）
@@ -190,12 +229,19 @@ export function toResponseFormat(name, schema) {
     return { type: 'json_schema', json_schema: { name, strict: true, schema: withAnchoredPatterns(schema) } };
 }
 
-/** 解析得了、卻不符合 schema。problem 是 validate() 的描述（只有路徑與規格，可以進 log） */
+/**
+ * 解析得了、卻不符合 schema 或 check。problem 是 validate 或 check 的描述；source 是 schema 或 check，
+ * rule 是 findProblem 的代號（check 一律是 check）。path 在 schema 不通過時是 findProblem 組的路徑，
+ * check 不通過時是 schemaPath 認可的開頭路徑，不認可就沒有
+ */
 export class SchemaMismatch extends Error {
-    constructor(problem) {
+    constructor(problem, { source, path, rule } = {}) {
         super(problem);
         this.name = 'SchemaMismatch';
         this.problem = problem;
+        this.source = source;
+        this.path = path;
+        this.rule = rule;
     }
 }
 
@@ -228,23 +274,40 @@ function matchingEnd(text, start) {
  * 由 schema 把關，而不是由位置：前面說明文字裡的一個 [ 配上引號，可能把後面真正的答案
  * 整段吞進一個壞掉的候選；反過來，壞掉的物件裡的片段（例如其中一個陣列）也不會被當成
  * 答案，因為它不符合 schema。沒給 schema 時回傳第一個解析得了的候選（只給測試與除錯用）。
+ * check(value) 檢查 schema 表達不了的規則，有 schema 時在 schema 通過之後才呼叫。它回傳 null
+ * 才算通過，其他回傳值都是問題描述；不通過的候選同樣跳過。reviver 照樣交給 JSON.parse，
+ * schema 與 check 驗的是它處理過的值。
  *
  * 都不行時，丟出「最前面那個候選」的錯誤，它最可能就是模型想寫的答案。解析不了是
  * SyntaxError（訊息可能含有正文片段，呼叫端只能拿它的種類去記 log），解析得了卻不符合
- * schema 是 SchemaMismatch。
+ * schema 或 check 是 SchemaMismatch。check 丟出的例外是程式錯誤，照樣往外丟。
  */
-export function extractJson(text, schema) {
+export function extractJson(text, schema, { reviver, check } = {}) {
     const trimmed = String(text).trim();
-    const problemOf = (value) => (schema ? validate(schema, value) : null);
+    // 不通過時回傳 SchemaMismatch。check 的描述只取開頭的路徑，由 schemaPath 把關
+    const problemOf = (value) => {
+        const found = schema ? findProblem(schema, value, '$') : null;
+        if (found) return new SchemaMismatch(found.problem, { source: 'schema', path: found.path, rule: found.rule });
+        const problem = check ? check(value) : null;
+        if (problem === null) return null;
+        const path = schema ? schemaPath(schema, /^\S*/.exec(String(problem))[0]) : undefined;
+        return new SchemaMismatch(problem, { source: 'check', path, rule: 'check' });
+    };
     let parseError;
     let firstError;
+    let whole;
+    let parsed = false;
+    // try 只包住 JSON.parse，check 丟出的例外才不會被當成解析不了
     try {
-        const value = JSON.parse(trimmed);
-        const problem = problemOf(value);
-        if (!problem) return value;
-        firstError = new SchemaMismatch(problem);
+        whole = JSON.parse(trimmed, reviver);
+        parsed = true;
     } catch (err) {
         parseError = err;
+    }
+    if (parsed) {
+        const mismatch = problemOf(whole);
+        if (mismatch === null) return whole;
+        firstError = mismatch;
     }
     const starts = /[{[]/g;
     for (let tries = 0; tries < MAX_CANDIDATES; tries++) {
@@ -261,14 +324,14 @@ export function extractJson(text, schema) {
         }
         let value;
         try {
-            value = JSON.parse(trimmed.slice(at, end + 1));
+            value = JSON.parse(trimmed.slice(at, end + 1), reviver);
         } catch (err) {
             firstError ??= err;
             continue;
         }
-        const problem = problemOf(value);
-        if (!problem) return value;
-        firstError ??= new SchemaMismatch(problem);
+        const mismatch = problemOf(value);
+        if (mismatch === null) return value;
+        firstError ??= mismatch;
     }
     throw firstError ?? parseError;
 }
