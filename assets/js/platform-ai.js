@@ -7,7 +7,7 @@
     'use strict';
 
     // 版號只寫在這裡。守衛與匯出各寫一份時，守衛的數字一旦比較大，每次載入都會覆寫全域物件。
-    var VERSION = 5;
+    var VERSION = 15;
 
     // 用 >= 而不是 ===：先載到新版、後又載到舊版（快取、頁面多寫一行 script）時，舊版才不會蓋掉新版。
     if (global.PlatformAI && global.PlatformAI.__version >= VERSION) {
@@ -328,6 +328,15 @@
     var MAX_ERROR_BODY_CHARS = 16 * 1024;
     // 其他型別是閘道日後可能新增的事件，略過就好，不讓舊頁面因此失敗。
     var KNOWN_EVENTS = ['accepted', 'progress', 'delta', 'done', 'error'];
+    // 閘道回這些代號並給了 retryAfter 時，等待期間不送出。整間學校常共用一個對外 IP，多按的每一次
+    // 仍會送到閘道、計入這個 IP 每分鐘的請求數；等待時間多加隨機的幾秒，同時被拒的人才不會同時回來
+    var COOLDOWN_CODES = ['busy', 'rate_limited', 'too_many_inflight', 'not_ready'];
+    var COOLDOWN_JITTER_MAX_MS = 30 * 1000;
+    var COOLDOWN_MAX_MS = 3600 * 1000;
+    // busy 的 Retry-After 可能是上游給的，最長一天；閘道修好之後不該還擋著使用者
+    var BUSY_COOLDOWN_MAX_MS = 600 * 1000;
+    // { until, code, message }，until 是 performance.now() 的時間：系統時間往回調不會拉長等待
+    var cooldown = null;
 
     // network 不能只怪使用者的網路：跨網域時，閘道停擺（通道回 502）、網站不在允許名單、網址路徑
     // 錯了，瀏覽器給的都是同一個 TypeError，分不出來
@@ -379,8 +388,12 @@
         err.requestId = extra.requestId;     // 回報問題時用來對照閘道的 log
         err.status = extra.status;
         err.field = extra.field;             // invalid_input：哪個欄位有問題
+        err.partial = extra.partial;         // 出錯之前收到的片段接起來的全文，有看得見的字才有
         return err;
     }
+
+    // 有沒有看得見的字，與閘道的 visible-text.mjs 同一個定義：零寬空白、韓文填充字、點字空白不算
+    var VISIBLE_TEXT = /(?![\u2800\uFFFC\p{Default_Ignorable_Code_Point}])[\p{L}\p{N}\p{P}\p{S}]/u;
 
     function toRetryAfter(value) {
         var seconds = Number(value);
@@ -539,6 +552,8 @@
      *
      * 參數不合法時丟出 TypeError，請求不會送出。使用者取消時丟出 signal 的 reason，通常是 AbortError；
      * 超過時限是 TimeoutError；其餘都是 AIError。要顯示的文字交給 describeError()。
+     * 除了使用者取消，出錯前已經收到看得見的字時，錯誤帶著 partial。閘道回 COOLDOWN_CODES 的錯誤並給了
+     * retryAfter 時，等待期間再呼叫會直接丟出同一個代號的 AIError，不送出請求。
      * 時限用 timeoutMs，不要用 signal: AbortSignal.timeout(…)：排隊加生成常超過幾十秒，長一點的任務會一律失敗。
      *
      * @param {string} taskId 任務代號，例如 'adhd-faq'
@@ -564,6 +579,11 @@
             log('error', 'AI 閘道網址沒有設定（<meta name="ai-gateway-url">）');
             throw makeAIError('not_configured', CLIENT_MESSAGES.not_configured);
         }
+        var waitMs = cooldown ? cooldown.until - performance.now() : 0;
+        if (waitMs > 0) {
+            log('info', 'AI 任務沒有送出：還在閘道建議的等待時間內', { task: taskId, code: cooldown.code });
+            throw makeAIError(cooldown.code, cooldown.message, { retryable: true, retryAfter: toRetryAfter(waitMs / 1000) });
+        }
 
         var controller = new AbortController();
         var stopReason = null;   // cancel | timeout | idle：之後把 abort 翻譯回對的錯誤
@@ -584,6 +604,7 @@
         var requestId;
         var responded = false;   // 收到回應標頭了沒：閒置逾時發生在這之前是連不上，之後是斷線
         var streaming = false;
+        var text = '';           // 收到的片段接起來的全文
         var startedAt = Date.now();
         log('info', 'AI 任務開始', { task: taskId });
         try {
@@ -609,7 +630,6 @@
             }
 
             streaming = true;
-            var text = '';
             var outcome = null;
             var parse = createSseParser(function (event) {
                 // 已經有結果，或使用者剛在回呼裡同步取消了：後面的一律不看
@@ -648,7 +668,7 @@
                         throw makeAIError(
                             typeof payload.code === 'string' && payload.code ? payload.code : 'unavailable',
                             typeof payload.message === 'string' && payload.message ? payload.message : CLIENT_MESSAGES.unavailable,
-                            { retryable: payload.retryable, retryAfter: toRetryAfter(payload.retryAfter), requestId: requestId }
+                            { retryable: payload.retryable, retryAfter: toRetryAfter(payload.retryAfter), requestId: requestId, partial: VISIBLE_TEXT.test(text) ? text : undefined }
                         );
                 }
             });
@@ -703,6 +723,19 @@
             // 有些錯誤建立時還不知道 requestId（例如解析器發現事件過大）；補上目前已知的，
             // 回報問題時才對得上閘道的 log
             if (failure.name === 'AIError' && !failure.requestId) failure.requestId = requestId;
+            // error 事件以外的失敗（斷線、逾時、回應格式錯誤）也帶著收到的字；使用者取消的不帶
+            if (stopReason !== 'cancel' && failure.partial === undefined && VISIBLE_TEXT.test(text)) failure.partial = text;
+            if (failure.name === 'AIError' && failure.retryAfter && COOLDOWN_CODES.indexOf(failure.code) !== -1) {
+                var nowMs = performance.now();
+                var blockMs = failure.retryAfter * 1000;
+                blockMs += Math.min(blockMs * 0.3 * Math.random(), COOLDOWN_JITTER_MAX_MS);
+                blockMs = Math.min(blockMs, failure.code === 'busy' ? BUSY_COOLDOWN_MAX_MS : COOLDOWN_MAX_MS);
+                if (!cooldown || nowMs + blockMs > cooldown.until) {
+                    cooldown = { until: nowMs + blockMs, code: failure.code, message: failure.message };
+                }
+                // 顯示的秒數照實際要等的時間
+                failure.retryAfter = toRetryAfter((cooldown.until - nowMs) / 1000);
+            }
             log(failure.name === 'AbortError' ? 'info' : 'warn', 'AI 任務失敗', {
                 task: taskId,
                 requestId: requestId,
@@ -743,7 +776,10 @@
 
     var INITIAL_PROGRESS_TEXT = '正在連線 AI 服務…';
     var RETRYING_NOW_TEXT = 'AI 服務有點忙，正在重新嘗試…';
+    var QUEUED_HINT_TEXT = '同一個網路同時使用的人多時，請分批送出。';
     var STATUS_FILL_DELAY_MS = 100;
+    var QUEUE_ANNOUNCE_INTERVAL_MS = 15 * 1000;
+    var STILL_WORKING_INTERVAL_MS = 60 * 1000;
 
     function retrySeconds(p) {
         return Math.max(1, Math.ceil((Number(p.delayMs) || 0) / 1000));
@@ -781,14 +817,17 @@
 
     /**
      * mountProgress 清空 container，顯示任務的階段、已等待幾秒，有 onCancel 時再加一顆取消鈕。
-     * 回傳的 update 交給 runTask 的 onProgress；任務結束後一定要呼叫 finish()。
+     * 回傳的 update 交給 runTask 的 onProgress；任務結束後一定要呼叫 finish()。焦點在 escapeScope
+     * （功能的輸入框、按鈕與結果所在的區塊）或進度區塊裡時，按 Esc 也會取消。
      *
      * container 和它的上層都不能是 live region：WebKit 會把 aria-live="off" 裡每秒的變化照樣算給外層
      * （AXObjectCache::handleTextChanged），取消鈕與秒數都會被唸出來。結果要另外放進 live region。
      * finish() 時焦點若還在區塊裡，例如剛按了取消，就交給 focusTarget，沒給才交給 container。空的 container
      * 高度常是 0，WebKit 也不把它放進無障礙樹，所以 focusTarget 要給發起任務的控制項。
      * 階段文字的 role="status" 約 100 毫秒後才填入，多數螢幕閱讀器不唸插入當下就有的內容。
-     * @param {HTMLElement} container @param {{onCancel?: Function, focusTarget?: HTMLElement}} [options]
+     * 排隊名次的變化最多每 15 秒唸一次；階段與名次一分鐘沒變時唸「仍在處理」，否則分不出是不是停住了。
+     * @param {HTMLElement} container
+     * @param {{onCancel?: Function, focusTarget?: HTMLElement, escapeScope?: HTMLElement}} [options]
      * @returns {{element: HTMLElement, update: Function, finish: Function}}
      */
     function mountProgress(container, options) {
@@ -797,27 +836,36 @@
 
         var root = document.createElement('div');
         root.className = 'platform-ai-progress';
-        root.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 12px;padding:16px 0;color:#374151';
+        root.style.cssText = 'position:relative;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 12px;padding:16px 0;color:#374151';
         var spinner = document.createElement('div');
         spinner.className = 'platform-ai-spinner';
         spinner.setAttribute('aria-hidden', 'true');
+        var shown = document.createElement('span');
+        shown.setAttribute('aria-hidden', 'true');
         var status = document.createElement('span');
         status.setAttribute('role', 'status');
+        // 樣式寫在元素上，不放進注入的 <style>：同一頁先跑過舊版時，那份 <style> 已經在了，
+        // injectProgressStyle 不會再補新的規則
+        status.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0';
         var elapsed = document.createElement('span');
         elapsed.setAttribute('role', 'timer');
         elapsed.setAttribute('aria-live', 'off');
         elapsed.style.cssText = 'font-size:0.875em;color:#4b5563;font-variant-numeric:tabular-nums';
         root.appendChild(spinner);
+        root.appendChild(shown);
         root.appendChild(status);
         root.appendChild(elapsed);
 
+        var onKeydown = null;
         if (typeof options.onCancel === 'function') {
             var cancelBtn = document.createElement('button');
             cancelBtn.type = 'button';
             cancelBtn.textContent = '取消';
+            // 焦點在進度區塊或 escapeScope 裡時按 Esc 也會取消，見下方的 onKeydown
+            cancelBtn.setAttribute('aria-keyshortcuts', 'Escape');
             // 邊框要和白底有 3:1 的對比，才看得出這裡有個按鈕（WCAG 1.4.11）
             cancelBtn.style.cssText = 'padding:2px 12px;border:1px solid #6b7280;border-radius:6px;background:#fff;color:#374151;cursor:pointer;font-size:0.875em';
-            cancelBtn.addEventListener('click', function () {
+            var cancel = function () {
                 if (cancelBtn.getAttribute('aria-disabled') === 'true') return;
                 // 用 aria-disabled 而不是 disabled：disabled 的按鈕會失去焦點，鍵盤使用者的
                 // 焦點就掉回 <body>，得從頁首重新找起
@@ -825,29 +873,71 @@
                 cancelBtn.style.opacity = '0.6';
                 cancelBtn.style.cursor = 'default';
                 notify(options.onCancel);
-            });
+            };
+            cancelBtn.addEventListener('click', cancel);
             root.appendChild(cancelBtn);
+            // 焦點在 escapeScope 或進度區塊裡時按 Esc 等於按取消，焦點不動。輸入法選字時的 Esc 是
+            // 取消選字，不算。結束選字的那個 keydown 在 Safari 的 isComposing 是 false，所以照 MDN
+            // keydown 頁的寫法，keyCode 229 也一起擋。
+            onKeydown = function (e) {
+                if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+                if (!root.isConnected) {
+                    document.removeEventListener('keydown', onKeydown);
+                    return;
+                }
+                var scope = options.escapeScope;
+                if (!root.contains(e.target) && !(scope && scope.contains(e.target))) return;
+                e.preventDefault();
+                cancel();
+            };
+            document.addEventListener('keydown', onKeydown);
         }
 
         container.textContent = '';
         container.appendChild(root);
 
+        // queue 表示這一句是排隊名次（還沒輪到下一個），寫進 status 的間隔受 QUEUE_ANNOUNCE_INTERVAL_MS 限制
+        var announcedAt = 0;
+        var announcedQueue = false;
+        var announcedText = '';   // 最後寫進 status 的階段文字，不含「仍在處理」
+        var writtenAt = 0;        // 最後一次寫 status 的時間，含「仍在處理」
+        function announce(text, queue) {
+            status.textContent = text;
+            announcedAt = writtenAt = performance.now();
+            announcedQueue = queue;
+            announcedText = text;
+        }
+
         // 填入之前收到的進度只記下最新的一句，時間到再一次填進去
         var filled = false;
         var pendingText = INITIAL_PROGRESS_TEXT;
+        var pendingQueue = false;
         var fillTimer = setTimeout(function () {
             filled = true;
-            status.textContent = pendingText;
+            announce(pendingText, pendingQueue);
         }, STATUS_FILL_DELAY_MS);
+        var announceTimer = null;
         var retryTimer = null;
-        function show(text) {
+        var hint = null;
+        function show(text, queue) {
+            if (shown.textContent !== text) shown.textContent = text;
+            clearTimeout(announceTimer);
             if (!filled) {
                 pendingText = text;
-            } else if (status.textContent !== text) {
-                // 文字沒變就不要重寫，否則螢幕閱讀器會把同一句再唸一次
-                status.textContent = text;
+                pendingQueue = queue;
+                return;
+            }
+            // 文字沒變就不要重寫，否則螢幕閱讀器會把同一句再唸一次。比的是上一句階段文字：中間唸過
+            // 「仍在處理」之後，同一個階段再送來也不重唸
+            if (announcedText === text) return;
+            var wait = queue && announcedQueue ? announcedAt + QUEUE_ANNOUNCE_INTERVAL_MS - performance.now() : 0;
+            if (wait > 0) {
+                announceTimer = setTimeout(function () { announce(text, queue); }, wait);
+            } else {
+                announce(text, queue);
             }
         }
+        shown.textContent = INITIAL_PROGRESS_TEXT;
 
         var startedAt = Date.now();
         var ticker = setInterval(function () {
@@ -857,6 +947,10 @@
                 return;
             }
             elapsed.textContent = '已等待 ' + formatSeconds(Math.floor((Date.now() - startedAt) / 1000));
+            if (filled && performance.now() - writtenAt >= STILL_WORKING_INTERVAL_MS) {
+                status.textContent = '仍在處理，已等 ' + Math.floor((Date.now() - startedAt) / 60000) + ' 分鐘…';
+                writtenAt = performance.now();
+            }
         }, 1000);
 
         return {
@@ -865,14 +959,22 @@
                 var text = phaseText(progress);
                 if (text === null) return;
                 clearTimeout(retryTimer);
-                show(text);
+                show(text, progress.phase === 'queued' && progress.position > 1);
+                if (progress.phase === 'queued' && !hint) {
+                    hint = document.createElement('p');
+                    hint.textContent = QUEUED_HINT_TEXT;
+                    hint.style.cssText = 'flex-basis:100%;margin:0;text-align:center;font-size:0.875em;color:#4b5563';
+                    root.appendChild(hint);
+                }
                 // 倒數到了就改口：重試送出之後，要等上游的第一個 token 才有下一個進度
                 if (progress.phase === 'retrying') {
-                    retryTimer = setTimeout(function () { show(RETRYING_NOW_TEXT); }, retrySeconds(progress) * 1000);
+                    retryTimer = setTimeout(function () { show(RETRYING_NOW_TEXT, false); }, retrySeconds(progress) * 1000);
                 }
             },
             finish: function () {
+                if (onKeydown) document.removeEventListener('keydown', onKeydown);
                 clearTimeout(fillTimer);
+                clearTimeout(announceTimer);
                 clearTimeout(retryTimer);
                 clearInterval(ticker);
                 // 焦點在進度區塊裡就先移走：區塊一移除，焦點會掉回 <body>。目標取不到焦點才補上
@@ -890,6 +992,33 @@
         };
     }
 
+    /**
+     * perFrame 包住 fn：回傳的函式呼叫幾次都可以，fn 每個畫面最多執行一次，拿到最後一次的參數。
+     * 邊收邊顯示的草稿每次都重畫全文，片段一次到好幾段或頁面忙的時候，多畫的那些看不到。
+     * 結束時要呼叫 cancel()，否則排著的那次會在最後的答案換上之後又畫出草稿。
+     * @param {Function} fn @returns {Function & { cancel: () => void }}
+     */
+    function perFrame(fn) {
+        var frame = 0;
+        var args = null;
+        function run() {
+            var latest = args;
+            frame = 0;
+            args = null;
+            notify.apply(null, [fn].concat(latest));
+        }
+        function schedule() {
+            args = Array.prototype.slice.call(arguments);
+            if (!frame) frame = global.requestAnimationFrame(run);
+        }
+        schedule.cancel = function () {
+            if (frame) global.cancelAnimationFrame(frame);
+            frame = 0;
+            args = null;
+        };
+        return schedule;
+    }
+
     global.PlatformAI = {
         __version: VERSION,
         formatError: formatError,
@@ -897,6 +1026,7 @@
         runTask: runTask,
         describeError: describeError,
         mountProgress: mountProgress,
+        perFrame: perFrame,
         log: log,
         getLogs: getLogs,
         clearLogs: clearLogs,

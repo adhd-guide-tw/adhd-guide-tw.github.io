@@ -4,9 +4,9 @@ name: AI Gateway Tests
 on:
   push:
     branches: [ "main" ]
-    paths: [ "ai-gateway/**", "assets/js/ai-chat.js", "pages/**", "package.json", ".github/workflows/ai-gateway.yml" ]
+    paths: [ "ai-gateway/**", "assets/js/ai-chat.js", "assets/js/platform-ai.js", "pages/**", "package.json", ".github/workflows/ai-gateway.yml" ]
   pull_request:
-    paths: [ "ai-gateway/**", "assets/js/ai-chat.js", "pages/**", "package.json", ".github/workflows/ai-gateway.yml" ]
+    paths: [ "ai-gateway/**", "assets/js/ai-chat.js", "assets/js/platform-ai.js", "pages/**", "package.json", ".github/workflows/ai-gateway.yml" ]
 
 permissions:
   contents: read

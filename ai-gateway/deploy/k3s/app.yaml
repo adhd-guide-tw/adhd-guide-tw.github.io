@@ -8,7 +8,11 @@ metadata:
   namespace: adhd-ai
 spec:
   replicas: 1
-  # 先起新的、新的 ready 才讓舊的收尾：換版期間不中斷。代價是重疊的那幾分鐘，兩版合計最多
+  # build-image.sh 只留各 ReplicaSet 用的映像檔，舊的只留一個，undo 也只退一版
+  revisionHistoryLimit: 1
+  # ready 後 10 秒內程序就結束的新 pod 不算可用，舊的不會進入最多 920 秒的收尾
+  minReadySeconds: 10
+  # 先起新的、新的可用才讓舊的收尾：換版期間不中斷。代價是重疊的那幾分鐘，兩版合計最多
   # 2×LLM_CONCURRENCY 個並行，再加上同一把 key 的其他服務，可能超過 key 的 8 個並行上限；
   # 撞到 429 時，接續輪由續寫引擎退避重試，第一輪由前端顯示「請稍後再試」
   strategy:
@@ -25,6 +29,8 @@ spec:
         app: ai-gateway
     spec:
       automountServiceAccountToken: false
+      # 閘道不讀命名空間裡各 Service 的環境變數（AI_GATEWAY_SERVICE_HOST 之類），不用注入
+      enableServiceLinks: false
       # preStop 5 秒 + 進行中的任務最多 900 秒（SHUTDOWN_GRACE_MS，不小於任務時限
       # LLM_TASK_TIMEOUT_MS）+ 餘裕
       terminationGracePeriodSeconds: 920
@@ -104,12 +110,17 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+          # 節點記憶體吃緊時，用量超過 request 的 pod 先被驅逐，進行中的任務全部白做。
+          # request 取 server.mjs 在 MAX_BODY_READS 旁記的實測 RSS 高點 162 MiB，再留一點。
+          # 磁碟只用到 kubelet 輪替的 log：預設每個容器最多 5 個 10Mi 的檔。超過 limit 會立即驅逐，不走 920 秒的收尾
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 192Mi
+              ephemeral-storage: 64Mi
             limits:
               memory: 256Mi
+              ephemeral-storage: 256Mi
           volumeMounts:
             - name: secrets
               mountPath: /run/secrets/adhd-ai

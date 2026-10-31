@@ -17,7 +17,8 @@ import {
     CONTINUE_THINKING_PROMPT, FORCE_ANSWER_PROMPT, REWRITE_JSON_PROMPT, REFORMAT_JSON_PROMPT, DEGENERATE_NUDGE, OVERLAP_WINDOW,
     jsonFormatPrompt,
 } from '../src/generate.mjs';
-import { UpstreamError } from '../src/upstream.mjs';
+import { UpstreamError, parseRetryAfter } from '../src/upstream.mjs';
+import { hasVisibleText } from '../src/visible-text.mjs';
 import { startFakeUpstream, testConfig } from './fake-upstream.mjs';
 
 const config = (overrides = {}) => testConfig('http://unused.invalid', overrides);
@@ -33,6 +34,9 @@ function expectedMaxTokens(base, instruction, parts) {
     const carried = parts.reduce((sum, [label, text]) => sum + estimateTokens(label) + estimateTokens(text), 0);
     return Math.min(8192, BUDGET.ctx - fixed - carried - (BUDGET.safety + Math.ceil(carried * BUDGET.ratio)));
 }
+
+// 2026-10-31 直接呼叫 WinLab：輸入 65529 tokens、max_tokens 8 時 400 的訊息（開頭的一段）
+const WINLAB_OVERFLOW_2026_10_31 = "This model's maximum context length is 65536 tokens. However, you requested 8 output tokens and your prompt contains at least 65529 input tokens";
 
 // vLLM 以 context 長度拒絕時，經 LiteLLM 與 redact 之後的錯誤內容（2026-10-21 實測的格式）
 function overflowError(prompt, limit = 32768) {
@@ -105,12 +109,13 @@ function scripted(rounds, { onEmit } = {}) {
     return { impl, calls };
 }
 
-async function run(rounds, { request = {}, cfg = {}, signal, onEmit } = {}) {
+async function run(rounds, { request = {}, cfg = {}, signal, onEmit, random } = {}) {
     const { impl, calls } = scripted(rounds, { onEmit });
     const streamed = [];
     const progress = [];
     const result = await generate(config(cfg), { messages: baseMessages, ...request }, {
         streamChatImpl: impl,
+        random,
         signal,
         onContent: (t) => streamed.push(t),
         onProgress: (p) => progress.push(p),
@@ -149,6 +154,11 @@ test('parseContextOverflow：認得 vLLM 經 LiteLLM 的 context 長度錯誤；
     assert.equal(parseContextOverflow(new UpstreamError('misconfigured', 'x', { status: 400, detail: '單次輸出上限為 8192 tokens(含思考)' })), null);
     assert.equal(parseContextOverflow(new UpstreamError('unavailable', 'x', { status: 502, detail: overflowError(1).detail })), null);
     assert.equal(parseContextOverflow(new Error('x')), null);
+});
+
+test('parseContextOverflow：2026-10-31 WinLab 改成 65536 context 之後的訊息照樣認得', () => {
+    const err = new UpstreamError('misconfigured', 'LLM 服務回應 HTTP 400', { status: 400, detail: WINLAB_OVERFLOW_2026_10_31 });
+    assert.deepEqual(parseContextOverflow(err), { limit: 65536, atLeast: 65529 });
 });
 
 test('trimOverlap：中文斷在詞中間、下一輪從整個詞重寫', () => {
@@ -328,12 +338,14 @@ test('提早送出：接續輪的開頭不可能再形成更長的重疊時，�
 
 test('提早送出也要看「去掉開頭空白」的版本：兩者都不可能變長才送出（反例來自隨機搜尋）', async () => {
     const previous = '畫究的法究 的學的計計的學研學學法的\n\n學方';
+    // 第二輪整段都是重疊，去掉後沒有新內容，不算寫完，第三輪才接上結尾
     const { result, streamed } = await run([
         { content: [previous], finish: 'length' },
         { content: [...'\n\n計的學研學學法的\n\n學方'], finish: 'stop' },
+        { content: ['法。'], finish: 'stop' },
     ]);
-    assert.equal(result.content, previous);
-    assert.equal(streamed, previous);
+    assert.equal(result.content, `${previous}法。`);
+    assert.equal(streamed, result.content);
 });
 
 test('提早送出與「等滿窗口」結果完全相同（隨機測試）', async () => {
@@ -359,9 +371,16 @@ test('提早送出與「等滿窗口」結果完全相同（隨機測試）', as
         const { result, streamed } = await run([
             { content: [previous], finish: 'length' },
             { content: pieces, finish: 'stop' },
+            { content: ['完。'], finish: 'stop' },
         ]);
         const expectedPrevious = previous.replace(/^\s+/, '');
-        assert.equal(result.content, expectedPrevious + trimOverlap(expectedPrevious, continuation), `case ${i}: ${JSON.stringify({ previous, continuation })}`);
+        const added = trimOverlap(expectedPrevious, continuation);
+        // 去掉重疊後沒有看得見的新字，或只是把結尾連同前面的空白重寫一次（至少兩個字母或數字）：
+        // 第二輪不算寫完，第三輪接上「完。」
+        const repeated = [...added.trim()].filter((ch) => /[\p{L}\p{N}]/u.test(ch)).length >= 2
+            && expectedPrevious.trimEnd().endsWith(added.trim());
+        const ending = !hasVisibleText(added) || repeated ? '完。' : '';
+        assert.equal(result.content, expectedPrevious + added + ending, `case ${i}: ${JSON.stringify({ previous, continuation })}`);
         assert.equal(streamed, result.content, `case ${i}`);
     }
 });
@@ -1177,21 +1196,31 @@ test('接續輪遇到 429：退避後重試成功，並發出 retrying 進度', 
     assert.equal(retrying.attempt, 1);
 });
 
-test('重試等多久：有 Retry-After 就照它（含 0 秒），沒有就指數退避（上限 retryMaxMs）', async () => {
-    const { progress } = await run([
+test('重試等多久：有 Retry-After 就照它（含 0 秒），沒有就指數退避（上限 retryMaxMs）再乘上 0.5～1 的隨機倍數', async () => {
+    const rounds = [
         { content: ['一'], finish: 'length' },
         { error: new UpstreamError('busy', '429', { retryable: true, retryAfter: 0 }) },
         { error: new UpstreamError('unavailable', '502', { retryable: true }) },
         { content: ['二'], finish: 'stop' },
-    ], { cfg: { retryBaseMs: 5, retryMaxMs: 40, continuationRetries: 3 } });
-    assert.deepEqual(progress.filter((p) => p.phase === 'retrying').map((p) => p.delayMs), [0, 10]);
-    const { progress: capped } = await run([
+    ];
+    const delays = async (random, cfg = { retryBaseMs: 5, retryMaxMs: 40, continuationRetries: 3 }, script = rounds) => {
+        const { progress } = await run(script, { cfg, random });
+        return progress.filter((p) => p.phase === 'retrying').map((p) => p.delayMs);
+    };
+    assert.deepEqual(await delays(() => 1), [0, 10]);
+    assert.deepEqual(await delays(() => 0), [0, 5]);
+    assert.deepEqual(await delays(() => 0.5), [0, 8]);
+    const flaky = [
         { content: ['一'], finish: 'length' },
         { error: new UpstreamError('unavailable', '502', { retryable: true }) },
         { error: new UpstreamError('unavailable', '502', { retryable: true }) },
         { content: ['二'], finish: 'stop' },
-    ], { cfg: { retryBaseMs: 30, retryMaxMs: 40 } });
-    assert.deepEqual(capped.filter((p) => p.phase === 'retrying').map((p) => p.delayMs), [30, 40]);
+    ];
+    assert.deepEqual(await delays(() => 1, { retryBaseMs: 30, retryMaxMs: 40 }, flaky), [30, 40]);
+    assert.deepEqual(await delays(() => 0, { retryBaseMs: 30, retryMaxMs: 40 }, flaky), [15, 20]);
+    // 沒有注入時用 Math.random：落在 0.5～1 倍之間
+    const [first] = await delays(undefined, { retryBaseMs: 1000, retryMaxMs: 1000 }, flaky.slice(0, 2).concat([{ content: ['二'], finish: 'stop' }]));
+    assert.ok(first >= 500 && first <= 1000, String(first));
 });
 
 test('第一輪的錯誤不重試（使用者重按就好）', async () => {
@@ -1300,13 +1329,14 @@ function productionRetryConfig(overrides = {}) {
     return cfg;
 }
 
-test('正式環境的重試預設：接續輪最多重試 2 次，2 秒起跳的指數退避', async (t) => {
+test('正式環境的重試預設：接續輪最多重試 2 次，2 秒起跳的指數退避（隨機倍數取 1）', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const flaky = () => new UpstreamError('unavailable', 'HTTP 502', { status: 502, retryable: true });
     const { impl, calls } = scripted([{ content: ['一'], finish: 'length' }, { error: flaky() }, { error: flaky() }, { error: flaky() }]);
     const delays = [];
     const settled = generate(productionRetryConfig(), { messages: baseMessages }, {
         streamChatImpl: impl,
+        random: () => 1,
         onProgress: (p) => { if (p.phase === 'retrying') delays.push(p.delayMs); },
     }).then(() => null, (err) => err);
     for (let i = 0; i < 2; i++) {
@@ -1319,13 +1349,14 @@ test('正式環境的重試預設：接續輪最多重試 2 次，2 秒起跳的
     assert.equal(calls.length, 4);
 });
 
-test('正式環境的退避上限是 30 秒', async (t) => {
+test('正式環境的退避上限是 30 秒（隨機倍數取 1）', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const flaky = () => new UpstreamError('unavailable', 'HTTP 502', { status: 502, retryable: true });
     const { impl } = scripted([{ content: ['一'], finish: 'length' }, ...Array.from({ length: 5 }, () => ({ error: flaky() })), { content: ['二'], finish: 'stop' }]);
     const delays = [];
     const done = generate(productionRetryConfig({ continuationRetries: 5 }), { messages: baseMessages }, {
         streamChatImpl: impl,
+        random: () => 1,
         onProgress: (p) => { if (p.phase === 'retrying') delays.push(p.delayMs); },
     });
     for (let i = 0; i < 5; i++) {
@@ -1473,6 +1504,102 @@ test('失敗時錯誤帶著已經用掉的 tokens（呼叫端記 log 用）：Ge
         assert.equal(err, broken);
         assert.deepEqual(err.usage, { promptTokens: 100, completionTokens: 50, reasoningTokens: 10 });
         assert.ok(!Object.keys(err).includes('usage'), '補上的是不可列舉的屬性');
+        return true;
+    });
+});
+
+test('onResponse 交給每一個上游請求，探測與正式的請求都是', async () => {
+    const { impl, calls } = scripted([probeStep(20_000), { content: ['完。'], finish: 'stop' }]);
+    const handed = [];
+    const counting = (cfg, payload, hooks) => {
+        handed.push(hooks.onResponse);
+        hooks.onResponse();
+        return impl(cfg, payload, hooks);
+    };
+    let responses = 0;
+    await generate(config(), { messages: bigTask(20_000).messages }, { streamChatImpl: counting, onResponse: () => responses++ });
+    assert.equal(calls[0].maxTokens, 1, '第一個請求是探測');
+    assert.equal(calls.length, 2);
+    assert.equal(responses, 2);
+    assert.ok(handed.every((fn) => typeof fn === 'function'));
+});
+
+test('stats：重試、探測與 JSON 重寫的次數，成功的結果與失敗的錯誤都帶著', async () => {
+    const down = () => new UpstreamError('unavailable', '連不上', { retryable: true });
+    const retried = await run([
+        { content: ['第一段'], finish: 'length' },
+        { error: down() },
+        { content: ['第二段'], finish: 'length' },
+        { error: down() },
+        { error: down() },
+        { content: ['完。'], finish: 'stop' },
+    ]);
+    assert.deepEqual(retried.result.stats, { retries: 3, probes: 0, rewrites: 0 });
+
+    const probed = await run([bigTask(20_000).probe, { content: ['完。'], finish: 'stop' }], { request: { messages: bigTask(20_000).messages } });
+    assert.deepEqual(probed.result.stats, { retries: 0, probes: 1, rewrites: 0 });
+
+    const rewritten = await run([
+        { content: ['{"a": 1'], finish: 'length' },
+        { content: ['{"a": '], finish: 'length' },
+        { content: ['{"a": 1}'], finish: 'stop' },
+    ], { request: { responseFormat: { type: 'json_object' } } });
+    assert.deepEqual(rewritten.result.stats, { retries: 0, probes: 0, rewrites: 2 });
+
+    await assert.rejects(run([
+        { content: ['{"a": 1'], finish: 'length' },
+        { error: down() },
+        { error: new UpstreamError('auth', 'HTTP 401', { status: 401 }) },
+    ], { request: { responseFormat: { type: 'json_object' } } }), (err) => {
+        assert.deepEqual(err.stats, { retries: 1, probes: 0, rewrites: 1 });
+        return true;
+    });
+    await assert.rejects(run([{ content: ['寫一半'], finish: 'length' }], { cfg: { maxRounds: 1 } }), (err) => {
+        assert.equal(err.code, 'incomplete');
+        assert.deepEqual(err.stats, { retries: 0, probes: 0, rewrites: 0 });
+        return true;
+    });
+});
+
+test('stats.rewrites 只算真的送出的重寫輪：用完輪數、送出前就放不下、退化重做與思考接續都不多算', async () => {
+    const json = { responseFormat: { type: 'json_object' } };
+    await assert.rejects(run([
+        { content: ['{"a": 1'], finish: 'length' },
+        { content: ['{"a": '], finish: 'length' },
+    ], { request: json, cfg: { maxRounds: 2 } }), (err) => {
+        assert.equal(err.code, 'incomplete');
+        assert.deepEqual(err.stats, { retries: 0, probes: 0, rewrites: 1 });
+        return true;
+    });
+
+    // 題目探出 1000 tokens、context 2040：第一輪寫滿 1024 被截斷，重寫輪的輸出額度不到 1024，送出前就結束
+    const messages = [{ role: 'system', content: '依主題回答。'.repeat(20) }, { role: 'user', content: '主題：生物'.repeat(20) }];
+    const unsent = scripted([probeStep(1000), { content: ['{"answer":"'], finish: 'length', usage: usageOf(1000, 5) }]);
+    await assert.rejects(generate(config({ contextTokens: 2040 }), { messages, ...json }, { streamChatImpl: unsent.impl }), (err) => {
+        assert.equal(err.code, 'incomplete');
+        assert.deepEqual(err.continuations, ['rewrite']);
+        assert.deepEqual(err.stats, { retries: 0, probes: 1, rewrites: 0 });
+        return true;
+    });
+    assert.equal(unsent.calls.length, 2);
+
+    const redone = await run([
+        { content: ['\n'.repeat(300)], finish: 'length' },
+        { thinking: ['想'], finish: 'length' },
+        { content: ['{"a": 1}'], finish: 'stop' },
+    ], { request: json });
+    assert.deepEqual(redone.result.continuations, ['degenerate', 'thinking']);
+    assert.deepEqual(redone.result.stats, { retries: 0, probes: 0, rewrites: 0 });
+});
+
+test('acceptJson 丟出例外：照樣丟出，錯誤帶著輪數、用量與次數', async () => {
+    const broken = new TypeError('check 寫錯');
+    await assert.rejects(run([{ content: ['{"a": 1'], finish: 'length' }, { content: ['{"a": 1}'], finish: 'stop' }], {
+        request: { responseFormat: { type: 'json_object' }, acceptJson: () => { throw broken; } },
+    }), (err) => {
+        assert.equal(err, broken);
+        assert.equal(err.rounds, 1);
+        assert.deepEqual(err.stats, { retries: 0, probes: 0, rewrites: 0 });
         return true;
     });
 });
@@ -1902,8 +2029,13 @@ test('continuationRetries 設成 0 就不重試；retryBaseMs／retryMaxMs 設�
 
 test('整段都是重疊、去掉後什麼都不剩：不送出空字串給 onContent', async () => {
     const pieces = [];
-    const { impl } = scripted([{ content: ['一二三四五'], finish: 'length' }, { content: ['三四五'], finish: 'stop' }]);
-    await generate(config(), { messages: baseMessages }, { streamChatImpl: impl, onContent: (t) => pieces.push(t) });
+    const { impl } = scripted([
+        { content: ['一二三四五'], finish: 'length' },
+        { content: ['三四五'], finish: 'stop' },
+        { content: ['六。'], finish: 'stop' },
+    ]);
+    const result = await generate(config(), { messages: baseMessages }, { streamChatImpl: impl, onContent: (t) => pieces.push(t) });
+    assert.equal(result.content, '一二三四五六。');
     assert.ok(pieces.every((p) => p.length > 0), JSON.stringify(pieces));
 });
 
@@ -2199,6 +2331,202 @@ test('接續強度已經是 none、接續輪卻只吐思考（下一輪的請求
     assert.equal(calls[1].reasoningEffort, 'none');
     assert.ok(!calls[1].messages[3].content.includes(DEGENERATE_NUDGE));
     assert.ok(calls[2].messages[3].content.endsWith(DEGENERATE_NUDGE));
+});
+
+test('接續正文的一輪去重疊後沒有新增看得見的字就以 stop 結束：不算寫完，用完輪數時以 incomplete 結束、附上已寫好的部分', async () => {
+    // 看不見的字元用 code point 產生：照樣送出，只是不算新增（原始碼裡不能有看不見的字元）
+    const [zwsp, hangulFiller, brailleBlank] = [0x200B, 0x3164, 0x2800].map((cp) => String.fromCodePoint(cp));
+    const cases = [
+        // [說明, 第二輪的思考, 第二輪的正文, 第二輪送出去的字]
+        ['只有空白', [], ['\n\n'], ''],
+        ['空字串', [], [], ''],
+        ['只重複結尾', [], ['二三'], ''],
+        ['只有零寬空白', [], [zwsp], zwsp],
+        ['只有韓文填充字', [], [hangulFiller], hangulFiller],
+        ['只有點字空白', [], [brailleBlank], brailleBlank],
+        ['想完什麼都沒寫', ['想'], [], ''],
+    ];
+    for (const [label, thinking, again, sent] of cases) {
+        const streamed = [];
+        const { impl, calls } = scripted([{ content: ['一二三'], finish: 'length' }, { thinking, content: again, finish: 'stop' }]);
+        await assert.rejects(generate(config({ maxRounds: 2 }), { messages: baseMessages }, { streamChatImpl: impl, onContent: (t) => streamed.push(t) }), (err) => {
+            assert.ok(err instanceof GenerationError, label);
+            assert.equal(err.code, 'incomplete', label);
+            assert.equal(err.partial, `一二三${sent}`, label);
+            assert.equal(streamed.join(''), err.partial, label);
+            assert.equal(err.rounds, 2, label);
+            return true;
+        });
+        assert.equal(calls.length, 2, label);
+    }
+});
+
+test('接續的一輪把已寫的結尾連同前面的空白或換行重寫一次就 stop：不算寫完；只補標點、圍欄、括號或新的字照常完成', async () => {
+    const head = '請先完成以下三項：\n1. 蒐集';
+    for (const again of [' 蒐集', '\n蒐集', '\n\n1. 蒐集']) {
+        await assert.rejects(run([{ content: [head], finish: 'length' }, { content: [again], finish: 'stop' }], { cfg: { maxRounds: 2 } }), (err) => {
+            assert.equal(err.code, 'incomplete', JSON.stringify(again));
+            assert.equal(err.stalled, true, JSON.stringify(again));
+            return true;
+        });
+    }
+    for (const ending of ['。', '```', '}', '資料。']) {
+        const { result } = await run([{ content: [head], finish: 'length' }, { content: [ending], finish: 'stop' }]);
+        assert.equal(result.content, head + ending, ending);
+    }
+});
+
+test('incomplete 標明是不是因為沒有進展：連兩輪沒有進展、最後一輪 stalled 是；最後一輪是被截斷就不是', async () => {
+    await assert.rejects(run([{ content: ['一二三'], finish: 'length' }, { content: [], finish: 'stop' }, { content: [], finish: 'stop' }]), { code: 'incomplete', stalled: true });
+    await assert.rejects(run([{ content: ['一二三'], finish: 'length' }, { content: [], finish: 'stop' }], { cfg: { maxRounds: 2 } }), { code: 'incomplete', stalled: true });
+    await assert.rejects(run([{ content: ['一'], finish: 'length' }, { content: ['二'], finish: 'length' }], { cfg: { maxRounds: 2 } }), { code: 'incomplete', stalled: false });
+});
+
+test('寫出來的只有看不見的字元：不論以 stop 結束、連兩輪沒有進展或用完輪數，都是 empty', async () => {
+    const zwsp = String.fromCodePoint(0x200B);
+    await assert.rejects(run([{ content: [zwsp], finish: 'stop' }]), { code: 'empty' });
+    await assert.rejects(run([{ content: [zwsp], finish: 'length' }, { content: [zwsp], finish: 'stop' }, { content: [zwsp], finish: 'stop' }]), { code: 'empty' });
+    await assert.rejects(run([{ content: [zwsp], finish: 'length' }, { content: [zwsp], finish: 'length' }], { cfg: { maxRounds: 2 } }), { code: 'empty' });
+});
+
+test('同一輪前面的嘗試已經寫出新字、斷線重試的那次什麼都沒加就 stop：不算寫完，但這一輪有進展，不累加連續沒有進展的計數', async () => {
+    const cut = new UpstreamError('unavailable', '途中中斷', { retryable: true });
+    const { result } = await run([
+        { content: ['一二三'], finish: 'length' },
+        { content: [], finish: 'stop' },
+        { content: ['四五六'], thenError: cut },
+        { content: [], finish: 'stop' },
+        { content: ['七。'], finish: 'stop' },
+    ], { cfg: { maxRounds: 5 } });
+    assert.equal(result.content, '一二三四五六七。');
+});
+
+test('接續輪斷線後，重試的那次什麼都沒加就以 stop 結束：一樣不算寫完，下一輪加提醒接著寫', async () => {
+    const cut = new UpstreamError('unavailable', '途中中斷', { retryable: true });
+    const { result, calls, streamed } = await run([
+        { content: ['開頭。'], finish: 'length' },
+        { content: ['中間寫到'], thenError: cut },
+        { content: [], finish: 'stop' },
+        { content: ['一半，結尾。'], finish: 'stop' },
+    ]);
+    assert.equal(result.content, '開頭。中間寫到一半，結尾。');
+    assert.equal(streamed, result.content);
+    assert.equal(calls.length, 4);
+    assert.ok(!calls[2].messages.at(-1).content.includes(DEGENERATE_NUDGE));
+    assert.ok(calls[3].messages.at(-1).content.endsWith(DEGENERATE_NUDGE));
+});
+
+test('一個任務收到的思考加正文累計超過「輪數 × max_tokens × 128」字元：中止那一輪、回報 protocol，附上已寫好的部分', async () => {
+    // max_tokens 100、3 輪：上限 38400 字元，思考也算在內。每輪用不同的字，接續時才不會被當成重疊
+    const chunks = (ch, n) => Array(n).fill(ch.repeat(2000));
+    const { impl, calls } = scripted([
+        { content: chunks('甲', 9), finish: 'length' },
+        { thinking: chunks('想', 5), content: chunks('乙', 4), finish: 'length' },
+        { content: chunks('丙', 9), finish: 'stop' },
+    ]);
+    const streamed = [];
+    await assert.rejects(generate(config({ maxTokens: 100, maxRounds: 3 }), { messages: baseMessages }, {
+        streamChatImpl: impl,
+        onContent: (t) => streamed.push(t),
+    }), (err) => {
+        assert.ok(err instanceof UpstreamError);
+        assert.equal(err.code, 'protocol');
+        assert.equal(err.retryable, false);
+        assert.match(err.message, /38400 字元/);
+        assert.equal(err.partial, streamed.join(''));
+        assert.equal(err.partial.length, 28_000);
+        return true;
+    });
+    assert.equal(calls.length, 3);
+});
+
+test('文字任務的正文超過 maxContentChars：超過的那一段不收也不送，中止上游、不開下一輪，以 incomplete（tooLong）結束，partial 等於送出的片段', async () => {
+    const emitted = [];
+    const { impl, calls } = scripted([
+        { content: ['一二三'], finish: 'length' },
+        { content: ['四五六', '七八九', '十'], finish: 'length' },
+        { content: ['不該送出'], finish: 'stop' },
+    ], { onEmit: (round, kind, text) => emitted.push(text) });
+    const streamed = [];
+    await assert.rejects(generate(config({ maxRounds: 3 }), { messages: baseMessages, maxContentChars: 5 }, {
+        streamChatImpl: impl,
+        onContent: (t) => streamed.push(t),
+    }), (err) => {
+        assert.ok(err instanceof GenerationError);
+        assert.equal(err.code, 'incomplete');
+        assert.equal(err.tooLong, true);
+        assert.equal(err.stalled, undefined);
+        assert.equal(err.rounds, 2);
+        assert.match(err.message, /5 字/);
+        assert.equal(err.partial, '一二三');
+        return true;
+    });
+    assert.equal(streamed.join(''), '一二三');
+    assert.equal(calls.length, 2);
+    // onEmit 在 onContent 之後呼叫：onContent 收下「四五六」時就丟出，同一輪後面的片段都沒有送
+    assert.deepEqual(emitted, ['一二三']);
+});
+
+test('maxContentChars：剛好用滿之後只多了結尾的換行不算超過；換行後面再有字才算', async () => {
+    const trailing = await run([{ content: ['一二三', '四五', '\n'], finish: 'stop' }], { request: { maxContentChars: 5 } });
+    assert.equal(trailing.result.content, '一二三四五\n');
+    await assert.rejects(run([{ content: ['一二三', '四五', '\n', '六'], finish: 'stop' }], { request: { maxContentChars: 5 } }), (err) => {
+        assert.equal(err.tooLong, true);
+        assert.equal(err.partial, '一二三四五\n');
+        return true;
+    });
+});
+
+test('maxContentChars：剛好用滿照常完成；JSON 任務不受它影響', async () => {
+    const exact = await run([{ content: ['一二三', '四五'], finish: 'stop' }], { request: { maxContentChars: 5 } });
+    assert.equal(exact.result.content, '一二三四五');
+    const json = await run([{ content: ['{"a":"一二三四五六七八"}'], finish: 'stop' }], {
+        request: { maxContentChars: 5, responseFormat: { type: 'json_object' } },
+    });
+    assert.equal(json.result.content, '{"a":"一二三四五六七八"}');
+});
+
+test('上游送來的思考不是字串（例如數字）：照轉成字串的長度算進累計上限，不會讓計數失效', async () => {
+    // max_tokens 1、1 輪：上限 128 字元
+    const { impl } = scripted([{ thinking: Array(20).fill(1234567890), finish: 'length' }]);
+    await assert.rejects(generate(config({ maxTokens: 1, maxRounds: 1 }), { messages: baseMessages }, { streamChatImpl: impl }), (err) => {
+        assert.equal(err.code, 'protocol');
+        assert.match(err.message, /128 字元/);
+        return true;
+    });
+});
+
+test('一個任務的累計上限剛好用滿照常完成，多一個字元就是 protocol', async () => {
+    // max_tokens 1、1 輪：上限 128 字元
+    const exact = await run([{ content: ['好'.repeat(128)], finish: 'stop' }], { cfg: { maxTokens: 1, maxRounds: 1 } });
+    assert.equal(exact.result.content.length, 128);
+    await assert.rejects(run([{ content: ['好'.repeat(129)], finish: 'stop' }], { cfg: { maxTokens: 1, maxRounds: 1 } }), { code: 'protocol' });
+});
+
+test('上游守著 max_tokens、每個 token 都是詞表裡最長的 128 個空白：照退化流程重寫，不當成上游沒照 max_tokens 停', async () => {
+    const up = await startFakeUpstream([
+        { content: Array.from({ length: 1024 }, () => ' '.repeat(128)), finish: 'length', usage: usageOf(50, 1024) },
+        { content: ['{"answer":"好"}'], finish: 'stop' },
+    ]);
+    try {
+        const result = await generate(testConfig(up.origin, { maxTokens: 1024, taskTimeoutMs: 30_000 }), { messages: baseMessages, responseFormat: { type: 'json_object' } });
+        assert.equal(result.content, '{"answer":"好"}');
+        assert.equal(up.requests.length, 2);
+        assert.equal(up.requests[1].body.response_format, undefined);
+    } finally {
+        await up.close();
+    }
+});
+
+test('正常的長回答（三輪、每輪兩萬字）不受累計上限影響', async () => {
+    // 每輪用不同的字，接續時才不會被當成重疊去掉
+    const round = (ch) => Array(20).fill(ch.repeat(1000));
+    const { result } = await run([
+        { thinking: Array(5).fill('想'.repeat(1000)), content: round('甲'), finish: 'length' },
+        { content: round('乙'), finish: 'length' },
+        { content: round('丙'), finish: 'stop' },
+    ], { cfg: { maxRounds: 3 } });
+    assert.equal(result.content.length, 60_000);
 });
 
 /** 不給 usage 的假 vLLM：實際 token 數是估算的 ratio 倍；放不下就 400（訊息只給下界） */
@@ -2680,6 +3008,61 @@ test('usage 的 prompt_tokens 是 0：不當成題目的精確值；負數的 to
     assert.deepEqual(result.usage, { promptTokens: 10, completionTokens: 0, reasoningTokens: 0 });
 });
 
+// 429 的 Retry-After 經過 parseRetryAfter，跟 streamChat 建立的錯誤一樣
+const busyAfter = (header) => new UpstreamError('busy', 'HTTP 429', { status: 429, retryable: true, retryAfter: parseRetryAfter(header) });
+
+test('Retry-After 在請求裡等的上限（120 秒）以內：照它等足才重試，不提早送出；秒數與 HTTP-date 都一樣', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+    for (const header of [() => '120', () => new Date(Date.now() + 120_000).toUTCString()]) {
+        const { impl, calls } = scripted([{ content: ['一'], finish: 'length' }, { error: busyAfter(header()) }, { content: ['二'], finish: 'stop' }]);
+        const delays = [];
+        let settled;
+        generate(config({ taskTimeoutMs: 900_000 }), { messages: baseMessages }, {
+            streamChatImpl: impl,
+            onProgress: (p) => { if (p.phase === 'retrying') delays.push(p.delayMs); },
+        }).then((value) => { settled = value; }, (err) => { settled = err; });
+        await until(() => delays.length === 1);
+        assert.deepEqual(delays, [120_000]);
+        t.mock.timers.tick(119_999);
+        for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(calls.length, 2, '還沒到上游指定的時間就送出了');
+        t.mock.timers.tick(1);
+        await until(() => settled !== undefined);
+        assert.equal(calls.length, 3);
+        assert.equal(settled.content, '一二');
+    }
+});
+
+test('Retry-After 超過在請求裡等的上限（121 秒、3600 秒）：不重試，馬上以 busy 結束，錯誤帶著上游要求的秒數與原本的錯誤', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+    for (const header of ['121', '3600']) {
+        await expectNoWait(header);
+    }
+});
+
+async function expectNoWait(header) {
+    const busy = busyAfter(header);
+    const { impl, calls } = scripted([{ content: ['一'], finish: 'length' }, { error: busy }, { content: ['不該被呼叫'], finish: 'stop' }]);
+    const ctrl = new AbortController();
+    const progress = [];
+    let settled;
+    generate(config({ taskTimeoutMs: 900_000 }), { messages: baseMessages }, {
+        streamChatImpl: impl,
+        signal: ctrl.signal,
+        onProgress: (p) => progress.push(p),
+    }).then((value) => { settled = value; }, (err) => { settled = err; });
+    await until(() => settled !== undefined || progress.some((p) => p.phase === 'retrying'));
+    ctrl.abort();
+    await until(() => settled !== undefined);
+    assert.ok(!progress.some((p) => p.phase === 'retrying'), `${header}：不該排重試`);
+    assert.ok(settled instanceof GenerationError);
+    assert.equal(settled.code, 'busy');
+    assert.equal(settled.retryAfter, Number(header));
+    assert.equal(settled.cause, busy);
+    assert.equal(settled.partial, '一');
+    assert.equal(calls.length, 2);
+}
+
 test('重試要等的時間剛好用完剩下的總時限：馬上以 timeout 結束，不白等', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
     const busy = new UpstreamError('busy', '429', { retryable: true, retryAfter: 10 });
@@ -2960,6 +3343,36 @@ test('JSON 寫完卻不合格，之後一直重寫出同一份或只吐空白：
             return true;
         });
         assert.equal(calls.length, 3);
+    }
+});
+
+test('onReject：寫完（stop）卻不合格的 JSON，交出輪數與 acceptJson 的回傳值；被截斷的不算；acceptJson 回傳 true 才收下', async () => {
+    const format = { type: 'json_object' };
+    const reason = { source: 'check', path: '$.items', rule: 'check' };
+    const acceptJson = (text) => (text.includes('[1, 2, 3]') ? true : text.includes('[1]') ? reason : false);
+    const rejected = [];
+    const { impl, calls } = scripted([
+        { content: ['{"items": [1, 2'], finish: 'length' },
+        { content: ['{"items": [1]}'], finish: 'stop' },
+        { content: ['{"items": []}'], finish: 'stop' },
+        { content: ['{"items": [1, 2, 3]}'], finish: 'stop' },
+    ]);
+    const result = await generate(config(), { messages: baseMessages, responseFormat: format, acceptJson }, {
+        streamChatImpl: impl,
+        onReject: (r) => rejected.push(r),
+    });
+    assert.equal(result.content, '{"items": [1, 2, 3]}');
+    assert.equal(calls.length, 4);
+    assert.deepEqual(rejected, [{ round: 2, reason }, { round: 3, reason: false }]);
+
+    // 不是 true 的值都不收（物件、1、字串），用完輪數仍不合格是 format
+    for (const verdict of [reason, 1, 'ok']) {
+        const seen = [];
+        await assert.rejects(generate(config({ maxRounds: 1 }), { messages: baseMessages, responseFormat: format, acceptJson: () => verdict }, {
+            streamChatImpl: scripted([{ content: ['{"items": [1]}'], finish: 'stop' }]).impl,
+            onReject: (r) => seen.push(r),
+        }), { code: 'format' });
+        assert.deepEqual(seen, [{ round: 1, reason: verdict }], String(verdict));
     }
 });
 

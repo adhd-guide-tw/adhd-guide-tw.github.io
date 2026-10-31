@@ -1,12 +1,12 @@
 /**
- * 排隊閘門與每個來源的限流。
+ * 排隊閘門、每個來源的限流與上游卡住時的斷路器。
  *
  * 執行：npm run test:ai-gateway
  */
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SlotGate, ClientLimiter, LimitError, clientKey, createProxyMatcher } from '../src/limits.mjs';
+import { SlotGate, ClientLimiter, Breaker, LimitError, clientKey, createProxyMatcher } from '../src/limits.mjs';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -326,6 +326,96 @@ test('ClientLimiter：最近又出現的來源排到最後，不會先被清', (
     assert.deepEqual([...limiter.clients.keys()], ['a', 'c']);
 });
 
+function breakerAt(t0 = 0) {
+    const clock = { t: t0 };
+    const changes = [];
+    const breaker = new Breaker({ now: () => clock.t, onChange: (fields) => changes.push(fields) });
+    return { breaker, clock, changes };
+}
+
+test('Breaker：連續 2 個任務卡住就斷開 30 秒，期間 wait() 給剩下的秒數（無條件進位），enter() 丟 busy', () => {
+    const { breaker, clock, changes } = breakerAt();
+    assert.equal(breaker.enter(), null);
+    breaker.finish(null, true);
+    assert.equal(breaker.wait(), 0);
+    breaker.finish(null, true);
+    assert.deepEqual(changes, [{ state: 'open', failures: 2 }]);
+    assert.equal(breaker.wait(), 30);
+    clock.t = 29_001;
+    assert.equal(breaker.wait(), 1);
+    assert.throws(() => breaker.enter(), (err) => err instanceof LimitError && err.code === 'busy' && err.retryAfter === 1);
+});
+
+test('Breaker：沒卡住的任務不改變計數；中間有一個收到回應就重新計算', () => {
+    const { breaker, changes } = breakerAt();
+    breaker.finish(null, true);
+    breaker.finish(null, false);
+    breaker.success();
+    breaker.finish(null, true);
+    assert.equal(breaker.wait(), 0);
+    assert.deepEqual(changes, []);
+});
+
+test('Breaker：30 秒後只放一個任務去試；試的那個收到回應就恢復，記一次 closed', () => {
+    const { breaker, clock, changes } = breakerAt();
+    breaker.finish(null, true);
+    breaker.finish(null, true);
+    clock.t = 30_000;
+    assert.equal(breaker.wait(), 0);
+    const trial = breaker.enter();
+    assert.ok(trial);
+    // 試的那個還沒結束：其他任務照樣擋
+    assert.equal(breaker.wait(), 30);
+    assert.throws(() => breaker.enter(), { code: 'busy' });
+    breaker.success();
+    breaker.finish(trial, false);
+    assert.deepEqual(changes, [{ state: 'open', failures: 2 }, { state: 'closed' }]);
+    assert.equal(breaker.enter(), null);
+    // 計數歸零：要再連續卡住 2 個才斷開
+    breaker.finish(null, true);
+    assert.equal(breaker.wait(), 0);
+});
+
+test('Breaker：試的那個又卡住就再斷開 30 秒；試的那個沒有結論（例如連不上、被取消）就讓下一個去試', () => {
+    const { breaker, clock, changes } = breakerAt();
+    breaker.finish(null, true);
+    breaker.finish(null, true);
+    clock.t = 30_000;
+    breaker.finish(breaker.enter(), false);
+    assert.equal(breaker.wait(), 0);
+    const second = breaker.enter();
+    assert.ok(second);
+    clock.t = 40_000;
+    breaker.finish(second, true);
+    assert.deepEqual(changes, [{ state: 'open', failures: 2 }, { state: 'open', failures: 3 }]);
+    assert.equal(breaker.wait(), 30);
+    // 斷開期間才結束的其他卡住的任務不延長時間、不重複記 log
+    clock.t = 50_000;
+    breaker.finish(null, true);
+    assert.equal(breaker.wait(), 20);
+    assert.equal(changes.length, 2);
+});
+
+test('Breaker：恢復之後又斷開、換別的任務去試時，上一個去試的任務結束不會放掉新的那一個', () => {
+    const { breaker, clock } = breakerAt();
+    breaker.finish(null, true);
+    breaker.finish(null, true);
+    clock.t = 30_000;
+    const first = breaker.enter();
+    // 斷開之前就在跑的任務收到回應：恢復
+    breaker.success();
+    breaker.finish(null, true);
+    breaker.finish(null, true);
+    clock.t = 60_000;
+    const second = breaker.enter();
+    assert.ok(second && second !== first);
+    breaker.finish(first, false);
+    assert.equal(breaker.wait(), 30);
+    assert.throws(() => breaker.enter(), { code: 'busy' });
+    breaker.finish(second, false);
+    assert.ok(breaker.enter());
+});
+
 test('clientKey：IPv4 原樣；各種寫法的 IPv4 對應位址都還原成 IPv4', () => {
     assert.equal(clientKey('203.0.113.5'), '203.0.113.5');
     assert.equal(clientKey('  203.0.113.5 '), '203.0.113.5');
@@ -341,6 +431,26 @@ test('clientKey：IPv6 取 /64（同一段視為同一來源，大小寫與省�
     assert.equal(clientKey('2001:db8:1:2::ffff'), clientKey('2001:db8:1:2:9:9:9:9'));
     assert.equal(clientKey('::1'), '0:0:0:0::/64');
     assert.notEqual(clientKey('::1'), clientKey('203.0.113.5'), 'IPv4 不能全部擠進同一個 IPv6 桶');
+});
+
+// 2002:cb00:7105::/48 是 203.0.113.5 的 6to4 前綴（文件用的位址段）
+test('clientKey：6to4（2002::/16）取內嵌的 IPv4，同一個 IPv4 的各個 /64 與 IPv4 本身都是同一個桶', () => {
+    for (const address of ['2002:cb00:7105::1', '2002:cb00:7105:1::1', '2002:CB00:7105:ffff:1:2:3:4', '[2002:cb00:7105:2::9]:443']) {
+        assert.equal(clientKey(address), '203.0.113.5', address);
+    }
+    assert.equal(clientKey('2002:cb00:7106:1::1'), '203.0.113.6');
+    // 2002 開頭的才是 6to4
+    assert.equal(clientKey('2001:db8:7105:1::1'), '2001:db8:7105:1::/64');
+});
+
+// Teredo：2001:0:<伺服器的 IPv4>:<旗標>:<反相的埠>:<反相的用戶端 IPv4>。伺服器用 192.0.2.1、192.0.2.2，
+// 用戶端 203.0.113.5 反相是 34ff:8efa（都是文件用的位址段）
+test('clientKey：Teredo（2001:0::/32）取反相後的用戶端 IPv4，伺服器、旗標與埠換了也是同一個桶', () => {
+    for (const address of ['2001:0:c000:201:0:0:34ff:8efa', '2001:0:c000:202:8000:1234:34ff:8efa', '2001::c000:201:0:ffff:34ff:8efa']) {
+        assert.equal(clientKey(address), '203.0.113.5', address);
+    }
+    assert.equal(clientKey('2001:0:c000:201:0:0:34ff:8ef9'), '203.0.113.6');
+    assert.equal(clientKey('2001:db8:c000:201::1'), '2001:db8:c000:201::/64');
 });
 
 test('clientKey：帶埠、方括號、zone id 的寫法先剝掉；不是 IP 的一律 invalid（鍵長有上限）', () => {

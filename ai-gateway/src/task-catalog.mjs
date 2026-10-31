@@ -6,6 +6,7 @@
  * TASK_DEFINITIONS 是正式上線的任務，server.mjs 啟動時交給 createCatalog 逐一檢查。
  * 任務都不設 timeoutMs，沿用 LLM_TASK_TIMEOUT_MS：時限從拿到名額就開始算，WinLab 忙的時候光等
  * 第一個位元組就要一兩分鐘。
+ * maxOutputChars 是指令寫的字數上限的 4 倍。看診筆記要和原文差不多長，以輸入上限 2000 字計。
  */
 export const TASK_DEFINITIONS = [
     {
@@ -14,6 +15,7 @@ export const TASK_DEFINITIONS = [
         input: {
             question: { label: '問題', maxLength: 500 },
         },
+        maxOutputChars: 2400,
         instructions: [
             '回答使用者的「問題」。你看不到之前的對話，他也不能追問，所以這一則就要讓他拿到有用的答案。問題清楚就直接回答；意思不清楚時，照最可能的意思回答，並在開頭用一句話說明你是怎麼理解的。',
             '',
@@ -35,6 +37,7 @@ export const TASK_DEFINITIONS = [
         input: {
             task: { label: '任務', maxLength: 200 },
         },
+        maxOutputChars: 1600,
         instructions: [
             '使用者寫下一件讓他不知所措的「任務」。請把它變成現在就能開始的一小步，再接上幾個步驟。有 ADHD 的人卡住的通常不是不知道該做什麼，而是開始與持續，所以計畫要短，第一步要小。',
             '',
@@ -59,6 +62,7 @@ export const TASK_DEFINITIONS = [
         input: {
             notes: { label: '雜亂筆記', maxLength: 2000 },
         },
+        maxOutputChars: 8000,
         instructions: [
             '使用者準備第一次到身心科看診，可能想評估 ADHD。他寫下了一段「雜亂筆記」，請把它整理成一份帶去給醫師看的看診筆記。你的工作只有整理：不診斷，不判斷符不符合 ADHD，不數症狀，也不給治療或用藥建議。',
             '',

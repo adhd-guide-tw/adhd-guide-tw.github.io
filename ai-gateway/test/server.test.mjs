@@ -15,10 +15,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createGateway, createLogger } from '../src/server.mjs';
+import { createGateway, createLogger, createBodyBuffer } from '../src/server.mjs';
 import { createCatalog } from '../src/tasks.mjs';
 import { UpstreamError } from '../src/upstream.mjs';
-import { GenerationError } from '../src/generate.mjs';
+import { GenerationError, DEGENERATE_NUDGE } from '../src/generate.mjs';
 import { testConfig, startFakeUpstream } from './fake-upstream.mjs';
 
 const ORIGIN = 'https://adhd-guide-tw.github.io';
@@ -51,6 +51,13 @@ const TASKS = createCatalog([
         input: { essay: { label: '文章', maxLength: 6000 } },
         output: { type: 'markdown' },
         instructions: '給回饋。',
+    },
+    {
+        id: 'demo-capped',
+        input: { question: { label: '問題', maxLength: 100 } },
+        output: { type: 'markdown' },
+        instructions: '回答問題，20 字以內。',
+        maxOutputChars: 20,
     },
     {
         id: 'demo-quick',
@@ -96,8 +103,9 @@ function deferred() {
 /**
  * 啟動一個閘道。generate 預設立刻回傳 {"answer":"好"}；可以傳入自訂的實作。
  * calls 記錄每次 generate 收到的設定、request 與 hooks。now 可以換成測試控制的時鐘。
+ * random 預設固定回傳 0：忙線的等待秒數不加隨機時間，測試才寫得出確切的值
  */
-async function startGateway({ server = {}, llm = {}, generate, now, maxBodyReads, host = '127.0.0.1' } = {}) {
+async function startGateway({ server = {}, llm = {}, generate, now, random = () => 0, maxBodyReads, maxBodyBytes, maxPendingBytes, stallTimeoutMs, host = '127.0.0.1' } = {}) {
     const logs = [];
     const calls = [];
     const generateImpl = async (llmConfig, request, hooks) => {
@@ -111,8 +119,12 @@ async function startGateway({ server = {}, llm = {}, generate, now, maxBodyReads
         tasks: TASKS,
         generateImpl,
         log: (level, tag, fields) => logs.push({ level, tag, fields }),
+        random,
         ...(now ? { now } : {}),
         ...(maxBodyReads ? { maxBodyReads } : {}),
+        ...(maxBodyBytes ? { maxBodyBytes } : {}),
+        ...(maxPendingBytes ? { maxPendingBytes } : {}),
+        ...(stallTimeoutMs ? { stallTimeoutMs } : {}),
     });
     await new Promise((resolve) => gateway.server.listen(0, host, resolve));
     const port = gateway.server.address().port;
@@ -124,6 +136,32 @@ async function startGateway({ server = {}, llm = {}, generate, now, maxBodyReads
         gateway,
         async stop() {
             await gateway.close({ graceMs: 0, requestWaitMs: 0 });
+        },
+    };
+}
+
+/**
+ * 用真的 generate、streamChat 與假 WinLab 啟動閘道：請求走過 HTTP 入口、生成引擎、上游串流解析
+ * 與 SSE 回應。lines 收下 createLogger 寫出的每一行 log。
+ */
+async function startRealGateway(script, llm = {}, server = {}) {
+    const upstream = await startFakeUpstream(script);
+    const lines = [];
+    const gateway = createGateway({
+        llm: testConfig(upstream.origin, { taskTimeoutMs: 4_000, ...llm }),
+        server: serverConfig(server),
+        tasks: TASKS,
+        log: createLogger('debug', (line) => lines.push(line)),
+        random: () => 0,
+    });
+    await new Promise((resolve) => gateway.server.listen(0, '127.0.0.1', resolve));
+    return {
+        base: `http://127.0.0.1:${gateway.server.address().port}`,
+        upstream,
+        lines,
+        async stop() {
+            await gateway.close({ graceMs: 0, requestWaitMs: 0 });
+            await upstream.close();
         },
     };
 }
@@ -313,6 +351,7 @@ async function waitFor(fn, timeoutMs = 2000) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const pick = (obj, keys) => Object.fromEntries(keys.map((key) => [key, obj[key]]));
 
 test('healthz／readyz：有 key 才 ready；公開的 readyz 只說狀態；HEAD 也可以', async () => {
     const gw = await startGateway();
@@ -657,6 +696,46 @@ test('文字任務：簡體字在片段與結果裡都轉成台灣繁體；切�
     }
 });
 
+test('文字任務：看不見的字元在片段與結果裡都拿掉；切在兩段之間的 \\r\\n、Tags 區塊的字元、選擇符也一致', async () => {
+    const cp = (...points) => String.fromCodePoint(...points);
+    const tag = cp(0xE0041);
+    // Tags 區塊的字元切在兩個 UTF-16 單位中間；\r 與 \n、❤ 與它的選擇符各在兩段
+    const pieces = ['数据\r', `\n${cp(0x202E)}反${tag.slice(0, 1)}`, `${tag.slice(1)}❤`, cp(0xFE0F, 0xFE0F), `${cp(0x200B)}。`];
+    const raw = pieces.join('');
+    const gw = await startGateway({
+        generate: async (request, hooks) => {
+            for (const piece of pieces) hooks.onContent(piece);
+            return { content: raw, rounds: 1, continuations: [], usage: { promptTokens: 1, completionTokens: 3, reasoningTokens: 0 } };
+        },
+    });
+    try {
+        const events = await readEvents(await post(gw.base, 'demo-md', { question: '怎麼開始？' }));
+        const text = events.filter((e) => e.event === 'delta').map((e) => e.data.text).join('');
+        const done = events.find((e) => e.event === 'done');
+        assert.equal(text, `數據\n反❤${cp(0xFE0F)}。`);
+        assert.equal(done.data.result, text);
+    } finally {
+        await gw.stop();
+    }
+});
+
+test('文字任務：最後一段以 \\r 結尾時，留著的 \\r 在結束時換成 \\n 送出', async () => {
+    const pieces = ['第一行\r', '\n第二行\r'];
+    const gw = await startGateway({
+        generate: async (request, hooks) => {
+            for (const piece of pieces) hooks.onContent(piece);
+            return { content: pieces.join(''), rounds: 1, continuations: [], usage: { promptTokens: 1, completionTokens: 2, reasoningTokens: 0 } };
+        },
+    });
+    try {
+        const events = await readEvents(await post(gw.base, 'demo-md', { question: '怎麼開始？' }));
+        assert.equal(events.filter((e) => e.event === 'delta').map((e) => e.data.text).join(''), '第一行\n第二行\n');
+        assert.equal(events.find((e) => e.event === 'done').data.result, '第一行\n第二行');
+    } finally {
+        await gw.stop();
+    }
+});
+
 test('進度事件會節流：同一階段的大量更新最多每 500ms 一次，但階段改變立刻送', async () => {
     const gw = await startGateway({
         generate: async (request, hooks) => {
@@ -715,10 +794,12 @@ test('模型輸出不符格式：error 事件 format；log 的細節不含模型
     }
 });
 
-test('上游錯誤：訊息只說「暫時無法使用」，遮罩過的細節只進 log', async () => {
+test('上游錯誤：訊息只說「暫時無法使用」；UPSTREAM-ERR 只記允許的欄位，上游的原文（detail）不進 log', async () => {
     const gw = await startGateway({
         generate: async () => {
-            throw new UpstreamError('auth', 'LLM 服務回應 HTTP 401', { status: 401, detail: 'key sk-*** not allowed from 1.2.3.4' });
+            throw new UpstreamError('auth', 'LLM 服務回應 HTTP 401', {
+                status: 401, detail: 'key sk-*** not allowed from 1.2.3.4', upstreamType: 'auth_error', upstreamId: 'req-up-1',
+            });
         },
     });
     try {
@@ -727,10 +808,99 @@ test('上游錯誤：訊息只說「暫時無法使用」，遮罩過的細節�
         assert.equal(error.event, 'error');
         assert.equal(error.data.code, 'unavailable');
         assert.equal(error.data.retryable, false);
-        assert.doesNotMatch(JSON.stringify(error.data), /401|1\.2\.3\.4|sk-/);
-        const upstreamLog = gw.logs.find((l) => l.tag === 'UPSTREAM-ERR');
-        assert.equal(upstreamLog.fields.status, 401);
-        assert.match(upstreamLog.fields.detail, /not allowed/);
+        assert.doesNotMatch(JSON.stringify(error.data), /401|1\.2\.3\.4|sk-|auth_error|req-up-1/);
+        const { id, ...fields } = gw.logs.find((l) => l.tag === 'UPSTREAM-ERR').fields;
+        assert.match(id, /^[0-9a-f-]{36}$/);
+        assert.deepEqual(Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)), {
+            code: 'auth', status: 401, reason: 'LLM 服務回應 HTTP 401', upstreamType: 'auth_error', upstreamId: 'req-up-1',
+        });
+        assert.doesNotMatch(JSON.stringify(gw.logs), /not allowed|1\.2\.3\.4|sk-/);
+    } finally {
+        await gw.stop();
+    }
+});
+
+// 上游的錯誤內容可能照抄收到的使用者訊息，例如回報哪一則訊息驗證失敗
+const LEAK = '祕密標記K7Q2';
+const lastUser = (req) => req.body.messages.filter((m) => m.role === 'user').at(-1).content;
+const UPSTREAM_LOG_KEYS = [
+    'id', 'code', 'status', 'reason', 'upstreamId', 'upstreamType', 'upstreamCode', 'upstreamParam',
+    'mediaType', 'bodyLength', 'bodyStart', 'retryAfter', 'contextLimit', 'inputTokens', 'inputAtLeast',
+];
+
+/** createLogger 寫出的一行「時間 級別 標籤 key=value …」裡的欄位，值是解開引號之後的字串 */
+function logFields(line) {
+    return Object.fromEntries([...line.matchAll(/ (\w+)=("(?:[^"\\]|\\.)*"|\S+)/g)].map(([, k, v]) => [k, v.startsWith('"') ? JSON.parse(v) : v]));
+}
+
+test('上游的錯誤照抄了使用者的輸入（HTTP 400 的 JSON、200 串流中的 error 事件）：log 與回給瀏覽器的錯誤都不含輸入，UPSTREAM-ERR 只記允許的欄位', async () => {
+    const echo = (req) => ({ code: 400, type: 'BadRequestError', message: `Validation failed for supplied user message: ${lastUser(req)}`, input: lastUser(req) });
+    const cases = [
+        ['HTTP 400', (req) => ({ status: 400, headers: { 'x-request-id': 'req-up-400' }, body: { error: echo(req) } }), 'req-up-400'],
+        ['串流中的 error', (req) => ({ headers: { 'x-request-id': 'req-up-sse' }, errorChunk: echo(req) }), 'req-up-sse'],
+    ];
+    for (const [label, step, upstreamId] of cases) {
+        const gw = await startRealGateway(step);
+        try {
+            const events = await readEvents(await post(gw.base, 'demo-md', { question: `我的${LEAK}與病史` }));
+            assert.ok(gw.upstream.requests[0].raw.includes(LEAK), `${label}：上游收到的訊息裡有標記`);
+            const last = events.at(-1);
+            assert.equal(last.event, 'error', label);
+            assert.equal(last.data.code, 'unavailable', label);
+            assert.doesNotMatch(JSON.stringify(events), new RegExp(LEAK), label);
+            assert.doesNotMatch(gw.lines.join('\n'), new RegExp(`${LEAK}|病史|Validation failed`), label);
+            const fields = logFields(gw.lines.find((l) => / UPSTREAM-ERR /.test(l)));
+            assert.deepEqual(Object.keys(fields).filter((k) => !UPSTREAM_LOG_KEYS.includes(k)), [], label);
+            assert.deepEqual([fields.status, fields.upstreamId, fields.upstreamType, fields.upstreamCode], ['400', upstreamId, 'BadRequestError', '400'], label);
+        } finally {
+            await gw.stop();
+        }
+    }
+});
+
+test('上游回 200 卻不是串流、內容照抄使用者的輸入：UPSTREAM-ERR 只記 media type、長度與開頭字元的類別', async () => {
+    const gw = await startRealGateway((req) => ({ contentType: 'text/html; charset=utf-8', rawChunks: [`<p>${lastUser(req)}</p>`] }));
+    try {
+        const events = await readEvents(await post(gw.base, 'demo-md', { question: `我的${LEAK}` }));
+        assert.equal(events.at(-1).data.code, 'unavailable');
+        assert.doesNotMatch(gw.lines.join('\n'), new RegExp(LEAK));
+        const fields = logFields(gw.lines.find((l) => / UPSTREAM-ERR /.test(l)));
+        assert.deepEqual(Object.keys(fields).filter((k) => !UPSTREAM_LOG_KEYS.includes(k)), []);
+        assert.deepEqual([fields.code, fields.mediaType, fields.bodyStart], ['protocol', 'text/html', 'symbol']);
+        assert.ok(Number(fields.bodyLength) > LEAK.length);
+    } finally {
+        await gw.stop();
+    }
+});
+
+test('上游的 finish_reason 不是固定形狀的代號：當成 unknown，TASK-ERR 與回給瀏覽器的錯誤都不含原文', async () => {
+    const gw = await startRealGateway((req) => ({ content: ['部分'], finish: `stop ${lastUser(req)}` }));
+    try {
+        const events = await readEvents(await post(gw.base, 'demo-md', { question: `我的${LEAK}` }));
+        assert.equal(events.at(-1).data.code, 'unavailable');
+        assert.doesNotMatch(JSON.stringify(events), new RegExp(LEAK));
+        assert.doesNotMatch(gw.lines.join('\n'), new RegExp(LEAK));
+        assert.equal(logFields(gw.lines.find((l) => / TASK-ERR /.test(l))).detail, '模型以 unknown 結束');
+    } finally {
+        await gw.stop();
+    }
+});
+
+test('程式錯誤：TASK-ERR 只記錯誤的種類、Node 的錯誤代碼與呼叫位置，不記訊息（V8 的訊息可能夾帶字串的值）', async () => {
+    const withCode = Object.assign(new Error(`write after end: ${LEAK}`), { code: 'ERR_STREAM_WRITE_AFTER_END' });
+    // 訊息裡照抄的字串值有一行看起來像堆疊
+    const fakeFrame = new TypeError(`Cannot create property 'x' on string '第一行\n    at ${LEAK} (x.js:1:1)'`);
+    const errors = [new TypeError(`Cannot create property 'x' on string '${LEAK}'`), withCode, fakeFrame];
+    const gw = await startGateway({ generate: async (request, hooks, n) => { throw errors[n - 1]; } });
+    try {
+        for (const expected of [/^TypeError at /, /^Error\(ERR_STREAM_WRITE_AFTER_END\) at /, /^TypeError at /]) {
+            const last = (await readEvents(await post(gw.base, 'demo-json', { topic: 'x' }))).at(-1);
+            assert.equal(last.data.code, 'internal');
+            const detail = gw.logs.filter((l) => l.tag === 'TASK-ERR').at(-1).fields.detail;
+            assert.match(detail, expected);
+            assert.match(detail, /server\.test\.mjs:\d+:\d+/);
+        }
+        assert.doesNotMatch(JSON.stringify(gw.logs), new RegExp(`${LEAK}|Cannot create|write after end`));
     } finally {
         await gw.stop();
     }
@@ -745,8 +915,13 @@ test('各種錯誤對應到的代號、可否重試與建議等待時間', async
         // 上游說 Retry-After: 0 也不能叫前端立刻重打
         ['demo-json', new UpstreamError('busy', '429', { status: 429, retryable: true, retryAfter: 0 }), 'busy', true, 1],
         ['demo-json', new GenerationError('incomplete', '用完輪數'), 'incomplete', false, undefined],
+        ['demo-json', Object.assign(new GenerationError('incomplete', '正文超過上限'), { tooLong: true }), 'incomplete', true, undefined],
         ['demo-json', new GenerationError('timeout', '超時'), 'timeout', true, undefined, true],
         ['demo-json', new GenerationError('timeout', '超時'), 'busy', true, 30, false],
+        // 上游要求等待的時間比剩下的時限長、沒有重試：不論收到過 token 沒有，都照忙線轉告上游要求的秒數
+        ['demo-json', new GenerationError('timeout', '重試要等', { retryAfter: 3600 }), 'busy', true, 3600, true],
+        ['demo-json', new GenerationError('timeout', '重試要等', { retryAfter: 0 }), 'busy', true, 1, false],
+        ['demo-json', new GenerationError('busy', '上游要求等 121 秒', { retryAfter: 121 }), 'busy', true, 121, true],
         ['demo-json', new GenerationError('empty', '沒有正文'), 'empty', true, undefined],
         ['demo-json', new GenerationError('stopped', 'content_filter'), 'unavailable', true, undefined],
         ['demo-json', new UpstreamError('timeout', '閒置', { retryable: true }), 'timeout', true, undefined, true],
@@ -776,10 +951,124 @@ test('各種錯誤對應到的代號、可否重試與建議等待時間', async
     }
 });
 
+test('閘道自己決定的忙線秒數加上 0～30% 的隨機時間（無條件進位）；Retry-After 標頭與 JSON 的值相同，上游給的秒數照原樣', async () => {
+    const hang = hangingGenerate();
+    const errors = [hungError(), new UpstreamError('busy', '429', { status: 429, retryable: true }), new UpstreamError('busy', '429', { status: 429, retryable: true, retryAfter: 7 })];
+    for (const [random, expected] of [[0.999, 39], [0.5, 35], [0, 30]]) {
+        const gw = await startGateway({
+            random: () => random,
+            server: { concurrency: 1, maxQueue: 0 },
+            generate: async (request, hooks, n) => {
+                if (n === 1) return hang.generate(request, hooks);
+                throw errors[n - 2];
+            },
+        });
+        let holder;
+        try {
+            // 名額被佔住、不能排隊：第二個請求在開始串流之前就回 503
+            holder = post(gw.base, 'demo-json', { topic: 'x' });
+            await waitFor(() => gw.calls.length === 1);
+            const full = await post(gw.base, 'demo-json', { topic: 'x' });
+            assert.equal(full.status, 503);
+            assert.equal(full.headers.get('retry-after'), String(expected));
+            assert.equal((await full.json()).error.retryAfter, expected);
+        } finally {
+            await gw.stop();
+            await holder?.then((res) => res.text());
+        }
+        const gw2 = await startGateway({ random: () => random, generate: async (request, hooks, n) => { throw errors[n - 1]; } });
+        try {
+            const seen = [];
+            for (let i = 0; i < errors.length; i++) seen.push((await readEvents(await post(gw2.base, 'demo-json', { topic: 'x' }))).at(-1).data.retryAfter);
+            assert.deepEqual(seen, [expected, expected, 7], String(random));
+        } finally {
+            await gw2.stop();
+        }
+    }
+});
+
+test('隨機時間也加在斷路器的 503、body 收不下的 503 與排隊逾時（LimitError）的忙線上', async () => {
+    const random = () => 0.999;
+    // 斷路器：剩 30 秒 → 39
+    const clock = { t: 0 };
+    const breakerGw = await startGateway({ random, now: () => clock.t, generate: async () => { throw hungError(); } });
+    try {
+        for (let i = 0; i < 2; i++) await (await post(breakerGw.base, 'demo-json', { topic: 'x' })).text();
+        const res = await post(breakerGw.base, 'demo-json', { topic: 'x' });
+        assert.equal(res.status, 503);
+        assert.equal(res.headers.get('retry-after'), '39');
+        assert.equal((await res.json()).error.retryAfter, 39);
+    } finally {
+        await breakerGw.stop();
+    }
+    // 同時在收的 body 滿了：5 → 7
+    const bodyGw = await startGateway({ random, maxBodyReads: 1 });
+    const slow = await rawSocket(bodyGw.port);
+    try {
+        slow.write(`POST /v1/tasks/demo-json HTTP/1.1\r\nHost: x\r\nOrigin: ${ORIGIN}\r\nContent-Type: application/json\r\nContent-Length: 30\r\n\r\n{"input":`);
+        await sleep(50);
+        const full = await rawRequest(bodyGw.port, { headers: jsonHeaders(), body: JSON.stringify({ input: { topic: 'x' } }) });
+        assert.equal(full.status, 503);
+        assert.equal(full.headers['retry-after'], '7');
+        assert.equal(JSON.parse(full.body).error.retryAfter, 7);
+    } finally {
+        slow.destroy();
+        await bodyGw.stop();
+    }
+    // 排隊逾時：30 → 39
+    const hang = hangingGenerate();
+    const queueGw = await startGateway({ random, server: { concurrency: 1, queueTimeoutMs: 50 }, generate: hang.generate });
+    let holder;
+    try {
+        holder = post(queueGw.base, 'demo-json', { topic: 'x' });
+        await waitFor(() => queueGw.calls.length === 1);
+        const last = (await readEvents(await post(queueGw.base, 'demo-json', { topic: 'x' }))).at(-1);
+        assert.deepEqual(pick(last.data, ['code', 'retryAfter']), { code: 'busy', retryAfter: 39 });
+    } finally {
+        await queueGw.stop();
+        await holder?.then((res) => res.text());
+    }
+});
+
+test('沒有注入 random 時，同一批被拒絕的請求拿到 30～39 秒之間不全相同的數字', async () => {
+    const gw = await startGateway({ random: Math.random, generate: async () => { throw hungError(); } });
+    try {
+        const seen = new Set();
+        // 斷路器在第 2 個之後斷開，之後的請求在讀 body 之前就是 503
+        for (let i = 0; i < 20; i++) {
+            const res = await post(gw.base, 'demo-json', { topic: 'x' });
+            const retryAfter = res.status === 503 ? (await res.json()).error.retryAfter : (await readEvents(res)).at(-1).data.retryAfter;
+            assert.ok(retryAfter >= 30 && retryAfter <= 39, String(retryAfter));
+            seen.add(retryAfter);
+        }
+        assert.ok(seen.size > 1);
+    } finally {
+        await gw.stop();
+    }
+});
+
 test('文字任務的正文只有空白：error 事件 empty（不是 format）', async () => {
     const gw = await startGateway({ generate: async () => ({ ...OK_RESULT, content: ' \n ' }) });
     try {
         const events = await readEvents(await post(gw.base, 'demo-md', { question: 'q' }));
+        assert.equal(events.at(-1).data.code, 'empty');
+    } finally {
+        await gw.stop();
+    }
+});
+
+// 片段與結果用同一套規則清掉看不見的字元，清完是空的片段不送；交出前的檢查判定沒有看得見的字。
+test('文字任務的正文只有看不見的字元：片段裡也拿掉、不送空的片段，最後是 error 事件 empty', async () => {
+    const gw = await startGateway({
+        generate: async (request, hooks) => {
+            hooks.onContent('\u200B');
+            return { ...OK_RESULT, content: '\u200B' };
+        },
+    });
+    try {
+        const events = await readEvents(await post(gw.base, 'demo-md', { question: 'q' }));
+        assert.deepEqual(events.filter((e) => e.event === 'delta').map((e) => e.data.text), []);
+        assert.equal(events.at(-1).event, 'error');
         assert.equal(events.at(-1).data.code, 'empty');
     } finally {
         await gw.stop();
@@ -1004,7 +1293,7 @@ test('同一來源的佔用上限只在名額全滿時生效：GPU 有空就讓�
         assert.equal(third.status, 429);
         const body = await third.json();
         assert.equal(body.error.code, 'too_many_inflight');
-        assert.match(body.error.message, /網路（例如公司或宿舍）/);
+        assert.match(body.error.message, /同一個網路（例如公司或宿舍）.*分批送出/);
     } finally {
         gate.resolve();
         await gw.stop();
@@ -1357,7 +1646,7 @@ test('直接執行：透過 symlink 也會啟動；SIGTERM 時記 SHUTDOWN 並�
     const child = spawn(process.execPath, [link], {
         env: {
             PATH: process.env.PATH, PORT: '0', HOST: '127.0.0.1', LLM_API_KEY: 'sk-test-only', LLM_UPSTREAM: 'http://127.0.0.1:9',
-            LOG_LEVEL: 'info', SHUTDOWN_GRACE_MS: '1000',
+            LOG_LEVEL: 'info', SHUTDOWN_GRACE_MS: '1000', QUEUE_TIMEOUT_MS: '290000',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -1370,6 +1659,8 @@ test('直接執行：透過 symlink 也會啟動；SIGTERM 時記 SHUTDOWN 並�
         assert.match(out, /key=loaded/);
         assert.doesNotMatch(out, /problems=/, '上游設定合法');
         assert.match(out, / warn CONFIG problem=shutdown-grace-below-task-timeout grace=1000 taskTimeout=\d+/, '寬限期比任務時限短要警告');
+        // 10000 + 290000 + 900000 = 1200000，等於前端的時限也要警告
+        assert.match(out, / warn CONFIG problem=gateway-timeout-not-below-frontend gateway=1200000 frontend=1200000/, '閘道的時限不比前端短要警告');
         const port = Number(/ port=(\d+)/.exec(out)?.[1]);
         assert.ok(port > 0, 'START log 印出系統挑的埠');
         assert.equal((await fetch(`http://127.0.0.1:${port}/healthz`)).status, 200);
@@ -1710,18 +2001,20 @@ test('Expect: 100-continue：提早的檢查沒過就直接回最終結果，不
     }
 });
 
-test('Expect: 100-continue：檢查都過了才回 100 Continue，送完 body 照常串流', async () => {
+test('Expect: 100-continue：檢查都過了才回 100 Continue，送完 body 照常串流；大小寫、空白與夾在其他期望裡的寫法也一樣', async () => {
     const gw = await startGateway();
     try {
-        const socket = await rawSocket(gw.port);
-        const body = JSON.stringify({ input: { topic: 'x' } });
-        socket.write(`POST /v1/tasks/demo-json HTTP/1.1\r\nHost: x\r\nOrigin: ${ORIGIN}\r\nContent-Type: application/json\r\n` +
-            `Content-Length: ${body.length}\r\nExpect: 100-continue\r\n\r\n`);
-        await waitFor(() => socket.text.includes('100 Continue'));
-        socket.write(body);
-        await waitFor(() => socket.text.includes('event: done'));
-        assert.match(socket.text, /^HTTP\/1\.1 100 Continue\r\n\r\nHTTP\/1\.1 200/);
-        socket.destroy();
+        for (const expect of ['100-continue', '100-Continue ', 'foo, 100-continue']) {
+            const socket = await rawSocket(gw.port);
+            const body = JSON.stringify({ input: { topic: 'x' } });
+            socket.write(`POST /v1/tasks/demo-json HTTP/1.1\r\nHost: x\r\nOrigin: ${ORIGIN}\r\nContent-Type: application/json\r\n` +
+                `Content-Length: ${body.length}\r\nExpect: ${expect}\r\n\r\n`);
+            await waitFor(() => socket.text.includes('100 Continue'));
+            socket.write(body);
+            await waitFor(() => socket.text.includes('event: done'));
+            assert.match(socket.text, /^HTTP\/1\.1 100 Continue\r\n\r\nHTTP\/1\.1 200/, expect);
+            socket.destroy();
+        }
     } finally {
         await gw.stop();
     }
@@ -1955,11 +2248,15 @@ test('第一個 token 之前就逾時（任務的時限、上游的閒置逾時�
         ? { thinking: ['想'], hangAfterChunks: 2 }
         : { hangBeforeHeaders: true }));
     const logs = [];
+    // 連續卡住的任務會讓斷路器斷開（另有測試）：每個請求之前把時鐘撥快 30 秒，讓它放行
+    const clock = { t: 0 };
     const gateway = createGateway({
         llm: testConfig(upstream.origin, { taskTimeoutMs: 10_000, idleTimeoutMs: 600 }),
         server: serverConfig({ rateLimitMax: 1 }),
         tasks: TASKS,
         log: (level, tag, fields) => logs.push({ level, tag, fields }),
+        now: () => clock.t,
+        random: () => 0,
     });
     await new Promise((resolve) => gateway.server.listen(0, '127.0.0.1', resolve));
     const base = `http://127.0.0.1:${gateway.server.address().port}`;
@@ -1967,12 +2264,14 @@ test('第一個 token 之前就逾時（任務的時限、上游的閒置逾時�
     try {
         // demo-quick 的時限 300ms 比閒置逾時短，先到的是任務的時限；demo-md 沒有自己的時限，先到的是閒置逾時
         for (const [task, input] of [['demo-quick', { topic: '等' }], ['demo-md', { question: '等' }], ['demo-quick', { topic: '等' }]]) {
+            clock.t += 30_000;
             assert.deepEqual((await readEvents(await post(base, task, input))).at(-1).data, busy, task);
         }
-        const waited = logs.filter((l) => l.tag === 'UPSTREAM-ERR').map((l) => [l.fields.code, l.fields.detail]);
+        clock.t += 30_000;
+        const waited = logs.filter((l) => l.tag === 'UPSTREAM-ERR').map((l) => [l.fields.code, l.fields.reason]);
         assert.deepEqual(waited, [
             ['timeout', '超過總時限 300ms，還沒收到任何 token'],
-            ['timeout', '上游超過 600ms 沒有回應任何資料，還沒收到任何 token'],
+            ['timeout', '上游超過 600ms 沒有任何進展，還沒收到任何 token'],
             ['timeout', '超過總時限 300ms，還沒收到任何 token'],
         ]);
         // rateLimitMax 是 1：上面三次都沒計次，開始思考之後才逾時的這次才算
@@ -1988,8 +2287,218 @@ test('第一個 token 之前就逾時（任務的時限、上游的閒置逾時�
     }
 });
 
+// 閘道自己的時限到了、上游連回應標頭都沒送：WinLab 收了連線卻卡住
+const hungError = () => new UpstreamError('timeout', '上游超過 2000ms 沒有任何進展', { retryable: true });
+
+test('斷路器：連續 2 個任務卡住就斷開，新任務在讀 body 之前回 503 忙線（Retry-After 是剩下的秒數），不呼叫模型、不計次；30 秒後放一個去試，收到回應就恢復', async () => {
+    const clock = { t: 0 };
+    const gw = await startGateway({
+        now: () => clock.t,
+        server: { rateLimitMax: 2 },
+        generate: async (request, hooks, n) => {
+            if (n <= 2) throw hungError();
+            hooks.onResponse();
+            return OK_RESULT;
+        },
+    });
+    try {
+        for (let i = 0; i < 2; i++) assert.equal((await readEvents(await post(gw.base, 'demo-json', { topic: 'x' }))).at(-1).data.code, 'busy');
+        const breakerLogs = () => gw.logs.filter((l) => l.tag === 'BREAKER').map((l) => [l.level, l.fields]);
+        assert.deepEqual(breakerLogs(), [['warn', { state: 'open', failures: 2 }]]);
+        clock.t = 12_500;
+        for (let i = 0; i < 3; i++) {
+            const res = await post(gw.base, 'demo-json', { topic: 'x' });
+            assert.equal(res.status, 503);
+            assert.equal(res.headers.get('retry-after'), '18');
+            assert.equal(res.headers.get('connection'), 'close');
+            assert.deepEqual(pick((await res.json()).error, ['code', 'retryAfter']), { code: 'busy', retryAfter: 18 });
+        }
+        assert.equal(gw.calls.length, 2);
+        assert.ok(gw.logs.some((l) => l.tag === 'REJECT' && l.fields.status === 503 && l.fields.reason === 'breaker'));
+        // rateLimitMax 是 2：上面 5 次都沒計次，去試的那次與下一次都照常
+        clock.t = 30_000;
+        for (let i = 0; i < 2; i++) assert.equal((await readEvents(await post(gw.base, 'demo-json', { topic: 'x' }))).at(-1).event, 'done');
+        assert.equal(gw.calls.length, 4);
+        assert.deepEqual(breakerLogs(), [['warn', { state: 'open', failures: 2 }], ['info', { state: 'closed' }]]);
+        // log 只有狀態與次數
+        assert.ok(gw.logs.filter((l) => l.tag === 'BREAKER').every((l) => Object.keys(l.fields).every((k) => k === 'state' || k === 'failures')));
+    } finally {
+        await gw.stop();
+    }
+});
+
+test('斷路器：排隊中的任務輪到時已經斷開，不呼叫模型，送出忙線的 error 事件，不計次', async () => {
+    const clock = { t: 0 };
+    const fail = deferred();
+    const gw = await startGateway({
+        now: () => clock.t,
+        server: { concurrency: 2 },
+        generate: async () => {
+            await fail.promise;
+            throw hungError();
+        },
+    });
+    try {
+        const first = [post(gw.base, 'demo-json', { topic: 'a' }), post(gw.base, 'demo-json', { topic: 'b' })];
+        await waitFor(() => gw.calls.length === 2);
+        const queuedRes = await post(gw.base, 'demo-json', { topic: 'c' });
+        const reader = sseReader(queuedRes);
+        await reader.until(queued);
+        clock.t = 1_000;
+        fail.resolve();
+        await Promise.all((await Promise.all(first)).map((res) => res.text()));
+        const events = await reader.rest();
+        assert.deepEqual(pick(events.at(-1).data, ['code', 'retryable', 'retryAfter']), { code: 'busy', retryable: true, retryAfter: 30 });
+        assert.ok(!events.some((e) => e.data.phase === 'started'));
+        assert.equal(gw.calls.length, 2);
+        assert.equal(gw.gateway.limiter.clients.get('127.0.0.1').hits.length, 0);
+    } finally {
+        await gw.stop();
+    }
+});
+
+test('斷路器：上游回了狀態碼（408、429、401）、連不上、收到標頭之後才逾時、用戶端離開，各連續兩次也不算卡住', async () => {
+    const withStatus = (err) => (request, hooks) => {
+        hooks.onResponse();
+        throw err;
+    };
+    const kinds = [
+        withStatus(new UpstreamError('timeout', 'HTTP 408', { status: 408, retryable: true })),
+        withStatus(new UpstreamError('busy', 'HTTP 429', { status: 429, retryable: true })),
+        withStatus(new UpstreamError('auth', 'HTTP 401', { status: 401 })),
+        () => { throw new UpstreamError('unavailable', '連不上 LLM 服務（ECONNREFUSED）', { retryable: true }); },
+        withStatus(hungError()),
+        (request, hooks) => {
+            hooks.onResponse();
+            hooks.onProgress({ phase: 'thinking', round: 1, thinkingTokens: 1, writingTokens: 0 });
+            throw hungError();
+        },
+    ];
+    for (const [i, kind] of kinds.entries()) {
+        const gw = await startGateway({ generate: async (request, hooks) => kind(request, hooks) });
+        try {
+            for (let n = 0; n < 2; n++) await (await post(gw.base, 'demo-json', { topic: 'x' })).text();
+            assert.equal(gw.calls.length, 2, String(i));
+            assert.equal(gw.gateway.breaker.wait(), 0, String(i));
+            assert.ok(!gw.logs.some((l) => l.tag === 'BREAKER'), String(i));
+        } finally {
+            await gw.stop();
+        }
+    }
+    // 用戶端離開：不算
+    const hang = hangingGenerate();
+    const left = await startGateway({ generate: hang.generate });
+    try {
+        for (let i = 0; i < 2; i++) {
+            const ctl = new AbortController();
+            const res = post(left.base, 'demo-json', { topic: 'x' }, { signal: ctl.signal }).catch(() => {});
+            await waitFor(() => left.calls.length === i + 1);
+            ctl.abort();
+            await res;
+        }
+        await waitFor(() => left.logs.filter((l) => l.tag === 'TASK').length === 2);
+        assert.equal(left.gateway.breaker.wait(), 0);
+    } finally {
+        await left.stop();
+    }
+});
+
+// 一個接一個跑的話，後一個收到標頭時會把計數歸零；兩個同時跑，都先收到標頭、之後才逾時
+test('斷路器：兩個同時進行的任務都收到標頭之後才逾時，不算卡住', async () => {
+    const fail = deferred();
+    const gw = await startGateway({
+        generate: async (request, hooks) => {
+            hooks.onResponse();
+            await fail.promise;
+            throw hungError();
+        },
+    });
+    try {
+        const both = [post(gw.base, 'demo-json', { topic: 'a' }), post(gw.base, 'demo-json', { topic: 'b' })];
+        await waitFor(() => gw.calls.length === 2);
+        fail.resolve();
+        await Promise.all((await Promise.all(both)).map((res) => res.text()));
+        assert.equal(gw.gateway.breaker.wait(), 0);
+        assert.ok(!gw.logs.some((l) => l.tag === 'BREAKER'));
+    } finally {
+        await gw.stop();
+    }
+});
+
+// 經過真的 streamChat：408 與「送了標頭之後就沒聲音」都收到過回應標頭
+test('斷路器：上游連續兩次回 408、或連續兩次送了標頭之後閒置逾時，都不斷開', async () => {
+    for (const step of [{ status: 408, body: { error: { message: 'timeout' } } }, { hangAfterChunks: 1 }]) {
+        const gw = await startRealGateway([step, step, { content: ['好'] }], { idleTimeoutMs: 300 });
+        try {
+            for (let n = 0; n < 2; n++) assert.equal((await readEvents(await post(gw.base, 'demo-md', { question: 'q' }))).at(-1).event, 'error');
+            assert.equal((await readEvents(await post(gw.base, 'demo-md', { question: 'q' }))).at(-1).event, 'done', JSON.stringify(step));
+            assert.equal(gw.upstream.requests.length, 3);
+            assert.ok(!gw.lines.some((l) => / BREAKER /.test(l)));
+        } finally {
+            await gw.stop();
+        }
+    }
+});
+
+test('斷路器：WinLab 收了連線卻不回標頭時，前兩個任務等滿閒置逾時，之後的不再一批一批地等', async () => {
+    const gw = await startRealGateway(() => ({ hangBeforeHeaders: true }), { idleTimeoutMs: 400 }, { concurrency: 2 });
+    try {
+        const started = Date.now();
+        const results = await Promise.all(Array.from({ length: 6 }, () => post(gw.base, 'demo-md', { question: '等' }).then(async (res) => {
+            const text = await res.text();
+            return res.status === 200 ? parseSse(text).events.at(-1).data.code : JSON.parse(text).error.code;
+        })));
+        // 沒有斷路器時是三批，要 1200ms 以上
+        assert.ok(Date.now() - started < 1_100, `${Date.now() - started}ms`);
+        assert.deepEqual(results, Array(6).fill('busy'));
+        assert.ok(gw.upstream.requests.length <= 3, String(gw.upstream.requests.length));
+        assert.ok(gw.lines.some((l) => / warn BREAKER state=open failures=2$/.test(l)));
+    } finally {
+        await gw.stop();
+    }
+});
+
+test('上游回 200 卻不是串流（維護頁面、帶著 429 的錯誤 JSON）：可以重試、不計次', async () => {
+    const steps = [
+        { contentType: 'text/html', rawChunks: ['<html>維護中</html>'] },
+        { contentType: 'application/json', rawChunks: [JSON.stringify({ error: { message: 'Rate limit', type: 'rate_limit', code: '429' } })] },
+        { contentType: 'text/html', rawChunks: ['<html>維護中</html>'] },
+    ];
+    const gw = await startRealGateway(steps, {}, { rateLimitMax: 1 });
+    try {
+        const results = [];
+        for (let i = 0; i < steps.length; i++) {
+            const res = await post(gw.base, 'demo-md', { question: '怎麼做專題？' });
+            assert.equal(res.status, 200, String(i));
+            results.push(pick((await readEvents(res)).at(-1).data, ['code', 'retryable', 'retryAfter']));
+        }
+        assert.deepEqual(results, [
+            { code: 'unavailable', retryable: true, retryAfter: undefined },
+            { code: 'busy', retryable: true, retryAfter: 30 },
+            { code: 'unavailable', retryable: true, retryAfter: undefined },
+        ]);
+        const fields = logFields(gw.lines.filter((l) => / UPSTREAM-ERR /.test(l))[1]);
+        assert.equal(fields.status, '429');
+        assert.equal(fields.upstreamType, 'rate_limit');
+    } finally {
+        await gw.stop();
+    }
+});
+
+test('上游回 200、沒有串流、直接回了寫完的回答：GPU 已經用了，不能重試、要計次', async () => {
+    const completion = { contentType: 'application/json', rawChunks: [JSON.stringify({ object: 'chat.completion', choices: [{ message: { content: '答' } }] })] };
+    const gw = await startRealGateway([completion, completion], {}, { rateLimitMax: 1 });
+    try {
+        const last = (await readEvents(await post(gw.base, 'demo-md', { question: 'q' }))).at(-1);
+        assert.deepEqual(pick(last.data, ['code', 'retryable']), { code: 'unavailable', retryable: false });
+        assert.equal((await post(gw.base, 'demo-md', { question: 'q' })).status, 429);
+    } finally {
+        await gw.stop();
+    }
+});
+
 // 408、504 是 WinLab（LiteLLM 或它前面的代理）自己回的逾時，維運要看得到它附的訊息。
-test('第一個 token 之前上游回 408、504（HTTP 狀態或串流中的 error）：回忙線、不計次，UPSTREAM-ERR 記著狀態碼與上游的內容', async () => {
+test('第一個 token 之前上游回 408、504（HTTP 狀態或串流中的 error）：回忙線、不計次，UPSTREAM-ERR 記著狀態碼與上游錯誤的 code，不記錯誤的原文', async () => {
     const litellm = { message: 'litellm.Timeout: upstream vllm timed out after 600s', code: '504' };
     const steps = [{ status: 504, body: { error: litellm } }, { status: 408, body: 'proxy request timeout' }, { errorChunk: litellm }];
     const upstream = await startFakeUpstream(steps);
@@ -2009,11 +2518,9 @@ test('第一個 token 之前上游回 408、504（HTTP 狀態或串流中的 err
             assert.equal((await readEvents(res)).at(-1).data.code, 'busy', `#${i}`);
         }
         const logged = logs.filter((l) => l.tag === 'UPSTREAM-ERR').map((l) => l.fields);
-        assert.deepEqual(logged.map((f) => [f.code, f.status]), [['timeout', 504], ['timeout', 408], ['timeout', 504]]);
-        assert.match(logged[0].detail, /litellm\.Timeout: upstream vllm timed out after 600s/);
-        assert.equal(logged[1].detail, 'proxy request timeout');
-        assert.match(logged[2].detail, /litellm\.Timeout: upstream vllm timed out after 600s/);
-        assert.doesNotMatch(JSON.stringify(logged), /還沒收到任何 token/);
+        assert.deepEqual(logged.map((f) => [f.code, f.status, f.upstreamCode]), [['timeout', 504, '504'], ['timeout', 408, undefined], ['timeout', 504, '504']]);
+        assert.deepEqual(logged.map((f) => f.reason), ['LLM 服務回應 HTTP 504', 'LLM 服務回應 HTTP 408', 'LLM 服務在串流途中回報錯誤']);
+        assert.doesNotMatch(JSON.stringify(logs), /litellm|proxy request timeout|還沒收到任何 token/);
         assert.equal(upstream.requests.length, 3);
     } finally {
         await gateway.close({ graceMs: 0, requestWaitMs: 0 });
@@ -2029,12 +2536,139 @@ test('JSON 任務把交出前的驗證交給 generate（acceptJson）：包在�
         const accept = gw.calls[0].request.acceptJson;
         assert.equal(accept('以下是結果：\n{"answer":"好"}'), true);
         assert.equal(accept('```json\n{"answer":"好"}\n```'), true);
-        assert.equal(accept('{"answer":"好","extra":1}'), false);
-        assert.equal(accept('{"answer":""}'), false);
-        assert.equal(accept('不是 JSON'), false);
+        // 不收時回傳不合格的來源、路徑與規則代號（generate 只把 true 當成收下）
+        assert.deepEqual(accept('{"answer":"好","extra":1}'), { source: 'schema', path: '$', rule: 'additional' });
+        assert.deepEqual(accept('{"answer":""}'), { source: 'schema', path: '$.answer', rule: 'min_length' });
+        assert.deepEqual(accept('不是 JSON'), { source: 'parse', path: undefined, rule: 'SyntaxError' });
         assert.equal(gw.calls[1].request.acceptJson, undefined);
     } finally {
         await gw.stop();
+    }
+});
+
+// 任務的 check 也在 acceptJson 裡：schema 抓不到的順序錯誤，在生成階段就走整份重寫，不會等到交出前才失敗。
+test('JSON 任務的 check 不通過：generate 不收下，照寫完卻不合格的流程整份重寫，交出重寫後的結果', async () => {
+    const STEPS = ['第一步', '第二步', '第三步'];
+    const answer = (labels) => ({ steps: labels.map((label, i) => ({ label, text: `動作${i + 1}` })) });
+    const good = answer(STEPS);
+    const logs = [];
+    const upstream = await startFakeUpstream([
+        { content: [JSON.stringify(answer(['第一步', '第一步', '第一步']))], finish: 'stop' },
+        { content: [JSON.stringify(good)], finish: 'stop' },
+    ]);
+    const gateway = createGateway({
+        llm: testConfig(upstream.origin),
+        server: serverConfig(),
+        tasks: createCatalog([{
+            id: 'demo-ordered',
+            input: { topic: { label: '主題', maxLength: 20 } },
+            instructions: '依主題寫三個步驟。',
+            output: {
+                type: 'json',
+                schema: {
+                    type: 'object',
+                    properties: {
+                        steps: {
+                            type: 'array',
+                            minItems: 3,
+                            maxItems: 3,
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    label: { type: 'string', enum: STEPS },
+                                    text: { type: 'string', minLength: 1, maxLength: 20 },
+                                },
+                                required: ['label', 'text'],
+                                additionalProperties: false,
+                            },
+                        },
+                    },
+                    required: ['steps'],
+                    additionalProperties: false,
+                },
+                check: ({ steps }) => {
+                    const at = steps.findIndex((step, i) => step.label !== STEPS[i]);
+                    return at === -1 ? null : `$.steps[${at}].label 應為 ${STEPS[at]}`;
+                },
+            },
+        }]),
+        log: (level, tag, fields) => logs.push({ tag, fields }),
+    });
+    await new Promise((resolve) => gateway.server.listen(0, '127.0.0.1', resolve));
+    try {
+        const events = await readEvents(await post(`http://127.0.0.1:${gateway.server.address().port}`, 'demo-ordered', { topic: '整理房間' }));
+        const done = events.find((e) => e.event === 'done');
+        assert.deepEqual(done?.data.result, good);
+        assert.deepEqual(done.data.continuations, ['rewrite']);
+        assert.equal(upstream.requests.length, 2);
+        // 重寫用的是 REFORMAT_JSON_PROMPT（寫完卻不合格），不是說被截斷的 REWRITE_JSON_PROMPT
+        assert.match(upstream.requests[1].body.messages.at(-1).content, /^你上一則的回覆不是一份符合要求的 JSON/);
+        const reject = logs.find((l) => l.tag === 'JSON-REJECT')?.fields;
+        assert.deepEqual([reject?.round, reject?.source, reject?.path, reject?.rule], [1, 'check', '$.steps[1].label', 'check']);
+    } finally {
+        await gateway.close({ graceMs: 0, requestWaitMs: 0 });
+        await upstream.close();
+    }
+});
+
+test('JSON-REJECT 只收固定形狀的來源、路徑與規則代號，其他值（含 generate 交回的任意物件）都不記', async () => {
+    const reasons = [
+        { source: 'check', path: '$.answer', rule: 'check' },
+        { source: `check ${LEAK}`, path: `${LEAK} $.answer`, rule: `rule ${LEAK}` },
+        { source: 'schema', path: `$.answer ${LEAK}`, rule: 'undefined'.repeat(5) },
+        false,
+        undefined,
+        `$.answer ${LEAK}`,
+    ];
+    const gw = await startGateway({
+        generate: async (request, hooks) => {
+            reasons.forEach((reason, i) => hooks.onReject({ round: i + 1, reason }));
+            return OK_RESULT;
+        },
+    });
+    try {
+        await readEvents(await post(gw.base, 'demo-json', { topic: 'x' }));
+        const rejects = gw.logs.filter((l) => l.tag === 'JSON-REJECT').map(({ fields }) => {
+            const { id, ...rest } = fields;
+            assert.match(id, /^[0-9a-f-]{36}$/);
+            return Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+        });
+        assert.deepEqual(rejects, [
+            { task: 'demo-json', round: 1, source: 'check', path: '$.answer', rule: 'check' },
+            ...[2, 3, 4, 5, 6].map((round) => ({ task: 'demo-json', round, ...(round === 3 ? { source: 'schema' } : {}) })),
+        ]);
+        assert.doesNotMatch(JSON.stringify(gw.logs), new RegExp(LEAK));
+    } finally {
+        await gw.stop();
+    }
+});
+
+test('任務的 check 丟出例外：第一輪就以 internal 結束，不重寫，log 記下例外的種類', async () => {
+    const upstream = await startFakeUpstream([{ content: ['{"answer":"好"}'], finish: 'stop' }]);
+    const logs = [];
+    const gateway = createGateway({
+        llm: testConfig(upstream.origin),
+        server: serverConfig(),
+        tasks: createCatalog([{
+            id: 'demo-broken-check',
+            input: { topic: { label: '主題', maxLength: 20 } },
+            output: { ...TASKS.get('demo-json').output, check: (value) => value.missing.length },
+            instructions: '依主題回答。',
+        }]),
+        log: (level, tag, fields) => logs.push({ level, tag, fields }),
+    });
+    await new Promise((resolve) => gateway.server.listen(0, '127.0.0.1', resolve));
+    try {
+        const events = await readEvents(await post(`http://127.0.0.1:${gateway.server.address().port}`, 'demo-broken-check', { topic: 'x' }));
+        assert.equal(events.at(-1).event, 'error');
+        assert.equal(events.at(-1).data.code, 'internal');
+        assert.equal(upstream.requests.length, 1);
+        const taskErr = logs.find((l) => l.tag === 'TASK-ERR');
+        assert.equal(taskErr?.level, 'error');
+        assert.match(taskErr.fields.detail, /^TypeError/);
+    } finally {
+        await gateway.close({ graceMs: 0, requestWaitMs: 0 });
+        await upstream.close();
     }
 });
 
@@ -2076,6 +2710,297 @@ test('同時在收 body 的請求有上限：滿了就立刻 503 並關掉連線
     }
 });
 
+// chunked 編碼一次送 1 byte 時，每一塊各自留著的話每 1 byte 都是一個物件
+test('createBodyBuffer：一塊一塊複製進同一個 Buffer，不夠時加倍、最多到上限；1 byte 一塊也只配置幾次', () => {
+    const limit = 97_024;
+    const body = createBodyBuffer(limit);
+    const one = Buffer.from('x');
+    for (let i = 0; i < limit; i++) body.append(one);
+    assert.equal(body.toString(), 'x'.repeat(limit));
+    // 1 KiB → 2 → 4 → 8 → 16 → 32 → 64 KiB → 97024
+    assert.equal(body.allocations, 8);
+    // 1 KiB 以內的 body 不再長大
+    const pieces = ['{"input":', '{"topic":"', '中"}}'];
+    const small = createBodyBuffer(limit);
+    for (const piece of pieces) small.append(Buffer.from(piece));
+    assert.equal(small.toString(), '{"input":{"topic":"中"}}');
+    assert.equal(small.allocations, 1);
+    // 上限比 1 KiB 小時照上限配置；沒有 body 也能收
+    assert.equal(createBodyBuffer(10).toString(), '');
+});
+
+test('body 用 chunked 編碼一次送 1 byte、中文字被切在兩塊之間，也照常解析', async () => {
+    const gw = await startGateway();
+    const socket = await rawSocket(gw.port);
+    try {
+        const body = Buffer.from(JSON.stringify({ input: { topic: '中文' } }));
+        socket.write(`POST /v1/tasks/demo-json HTTP/1.1\r\nHost: x\r\nOrigin: ${ORIGIN}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`);
+        for (const byte of body) socket.write(Buffer.concat([Buffer.from('1\r\n'), Buffer.from([byte]), Buffer.from('\r\n')]));
+        socket.write('0\r\n\r\n');
+        await socket.whenClosed;
+        assert.match(socket.text, /^HTTP\/1\.1 200 /);
+        assert.match(socket.text, /event: done/);
+        assert.match(gw.calls[0].request.messages[1].content, /中文/);
+    } finally {
+        socket.destroy();
+        await gw.stop();
+    }
+});
+
+// demo-json 的 body 上限是 20 × 4 × 12 + 1024 = 1984 bytes。chunk() 是 chunked 編碼的一塊
+const chunk = (text) => `${Buffer.byteLength(text).toString(16)}\r\n${text}\r\n`;
+const chunkedHead = `POST /v1/tasks/demo-json HTTP/1.1\r\nHost: x\r\nOrigin: ${ORIGIN}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n`;
+
+// 1899 bytes：開頭 19 bytes 加 1880 個空白
+const held = chunk(`{"input":{"topic":"${' '.repeat(1880)}`);
+
+test('同時在收的 body 以實際收到的位元組計上限：只連線不送資料的不佔；收到的超過就 503，宣告的 Content-Length 放不下也是', async () => {
+    // 時鐘不動：停住的請求都不滿 2 秒，不會被擋掉讓位
+    const gw = await startGateway({ maxBodyBytes: 2_000, now: () => 0, random: () => 0.999 });
+    const open = [];
+    const send = (port, ...pieces) => rawSocket(port).then((socket) => {
+        for (const piece of pieces) socket.write(piece);
+        open.push(socket);
+        return socket;
+    });
+    const small = () => rawRequest(gw.port, { headers: { ...jsonHeaders(), 'transfer-encoding': 'chunked' }, body: JSON.stringify({ input: { topic: 'x' } }) });
+    try {
+        // 只送標頭的連線不佔位元組
+        for (let i = 0; i < 3; i++) await send(gw.port, chunkedHead);
+        await sleep(50);
+        assert.equal((await small()).status, 200);
+        // 送了 1900 bytes 就停住：還放得下小的，宣告 200 bytes 的放不下
+        await send(gw.port, chunkedHead, held);
+        await sleep(50);
+        assert.equal((await small()).status, 200);
+        const declared = await rawRequest(gw.port, { headers: jsonHeaders(), body: JSON.stringify({ input: { topic: 'x'.repeat(170) } }) });
+        assert.equal(declared.status, 503);
+        assert.equal(declared.headers['retry-after'], '7');
+        // 沒有宣告大小、送到一半超過預算：503
+        const midway = await rawRequest(gw.port, { headers: { ...jsonHeaders(), 'transfer-encoding': 'chunked' }, body: JSON.stringify({ input: { topic: ` ${' '.repeat(150)}x` } }) });
+        assert.equal(midway.status, 503);
+        assert.equal(JSON.parse(midway.body).error.code, 'busy');
+        assert.equal(midway.headers['retry-after'], '7');
+        assert.equal(JSON.parse(midway.body).error.retryAfter, 7);
+        assert.equal(midway.headers.connection, 'close');
+        // log 分得出是讀 body 之前就放不下，還是讀到一半才超過
+        const reasons = gw.logs.filter((l) => l.tag === 'REJECT' && l.fields.status === 503).map((l) => l.fields.reason);
+        assert.deepEqual(reasons, ['body_bytes', 'body_budget']);
+    } finally {
+        for (const socket of open) socket.destroy();
+        await gw.stop();
+    }
+});
+
+test('宣告的 Content-Length 在讀 body 之前檢查：放不下就 503、不回 100 Continue；剛好放得下的收；比任務上限大的是 413', async () => {
+    const gw = await startGateway({ maxBodyBytes: 2_000, now: () => 0 });
+    const holder = await rawSocket(gw.port);
+    const waiter = await rawSocket(gw.port);
+    try {
+        holder.write(chunkedHead + held);
+        await sleep(50);
+        // 1899 + 102 > 2000：只送標頭，回應在送 body 之前就到
+        waiter.write(`POST /v1/tasks/demo-json HTTP/1.1\r\nHost: x\r\nOrigin: ${ORIGIN}\r\nContent-Type: application/json\r\nContent-Length: 102\r\nExpect: 100-continue\r\n\r\n`);
+        await waiter.whenClosed;
+        assert.match(waiter.text, /^HTTP\/1\.1 503 /);
+        assert.doesNotMatch(waiter.text, /100 Continue/);
+        // 1899 + 101 = 2000：剛好放得下
+        const exact = JSON.stringify({ input: { topic: 'x' } }).padEnd(101, ' ');
+        assert.equal((await rawRequest(gw.port, { headers: jsonHeaders(), body: exact })).status, 200);
+        // 比任務的上限（1984）大：預算滿不滿都是 413
+        const tooLarge = await rawRequest(gw.port, { headers: jsonHeaders(), body: ' '.repeat(1985) });
+        assert.equal(tooLarge.status, 413);
+    } finally {
+        holder.destroy();
+        waiter.destroy();
+        await gw.stop();
+    }
+});
+
+test('放不下新請求時，收了 2 秒以上還沒收完的請求被擋掉讓位（503、關連線）；不滿 2 秒的不會', async () => {
+    const clock = { t: 0 };
+    const gw = await startGateway({ maxBodyBytes: 2_000, now: () => clock.t, random: () => 0.999 });
+    const stalled = await rawSocket(gw.port);
+    const student = () => rawRequest(gw.port, { headers: jsonHeaders(), body: JSON.stringify({ input: { topic: 'x'.repeat(10) } }).padEnd(200, ' ') });
+    try {
+        stalled.write(chunkedHead + held);
+        await sleep(50);
+        clock.t = 1_999;
+        assert.equal((await student()).status, 503);
+        assert.ok(!stalled.destroyed);
+        clock.t = 2_000;
+        assert.equal((await student()).status, 200);
+        await stalled.whenClosed;
+        assert.match(stalled.text, /^HTTP\/1\.1 503 /);
+        assert.match(stalled.text, /\r\nretry-after: 7\r\n/i);
+        assert.match(stalled.text, /\r\nconnection: close\r\n/i);
+    } finally {
+        stalled.destroy();
+        await gw.stop();
+    }
+});
+
+test('只有個數放不下時也擋掉收了 2 秒以上的請求；被擋的 REJECT 記 reason=evicted', async () => {
+    const clock = { t: 0 };
+    const gw = await startGateway({ maxBodyReads: 1, now: () => clock.t });
+    const stalled = await rawSocket(gw.port);
+    try {
+        stalled.write(chunkedHead + chunk('{"input":'));
+        await sleep(50);
+        clock.t = 1_999;
+        assert.equal((await rawRequest(gw.port, { headers: jsonHeaders(), body: JSON.stringify({ input: { topic: 'x' } }) })).status, 503);
+        assert.equal(gw.logs.find((l) => l.tag === 'REJECT').fields.reason, 'body_reads');
+        clock.t = 2_000;
+        assert.equal((await rawRequest(gw.port, { headers: jsonHeaders(), body: JSON.stringify({ input: { topic: 'x' } }) })).status, 200);
+        await stalled.whenClosed;
+        assert.match(stalled.text, /^HTTP\/1\.1 503 /);
+        assert.ok(gw.logs.some((l) => l.tag === 'REJECT' && l.fields.status === 503 && l.fields.reason === 'evicted'));
+    } finally {
+        stalled.destroy();
+        await gw.stop();
+    }
+});
+
+test('宣告的 Content-Length 比任務上限大：直接 413，不擋掉別的請求', async () => {
+    const clock = { t: 0 };
+    const gw = await startGateway({ maxBodyReads: 1, now: () => clock.t });
+    const stalled = await rawSocket(gw.port);
+    const big = await rawSocket(gw.port);
+    try {
+        stalled.write(chunkedHead + chunk('{"input":'));
+        await sleep(50);
+        clock.t = 5_000;
+        big.write(`POST /v1/tasks/demo-json HTTP/1.1\r\nHost: x\r\nOrigin: ${ORIGIN}\r\nContent-Type: application/json\r\nContent-Length: 99999\r\n\r\n`);
+        await big.whenClosed;
+        assert.match(big.text, /^HTTP\/1\.1 413 /);
+        await sleep(50);
+        assert.ok(!stalled.destroyed);
+        assert.equal(stalled.text, '');
+    } finally {
+        stalled.destroy();
+        big.destroy();
+        await gw.stop();
+    }
+});
+
+test('能擋的請求全部擋掉也放不下時，一個都不擋', async () => {
+    const clock = { t: 0 };
+    const gw = await startGateway({ maxBodyBytes: 2_000, now: () => clock.t });
+    const old = await rawSocket(gw.port);
+    const fresh = await rawSocket(gw.port);
+    try {
+        // 收了 2 秒以上的只佔 100 bytes，不滿 2 秒的佔 1850 bytes；新請求宣告 200 bytes
+        old.write(chunkedHead + chunk(`{"input":{"topic":"${' '.repeat(81)}`));
+        await sleep(50);
+        clock.t = 3_000;
+        fresh.write(chunkedHead + chunk(`{"input":{"topic":"${' '.repeat(1831)}`));
+        await sleep(50);
+        const res = await rawRequest(gw.port, { headers: jsonHeaders(), body: JSON.stringify({ input: { topic: 'x' } }).padEnd(200, ' ') });
+        assert.equal(res.status, 503);
+        await sleep(50);
+        assert.equal(old.text, '');
+        assert.ok(!old.destroyed);
+    } finally {
+        old.destroy();
+        fresh.destroy();
+        await gw.stop();
+    }
+});
+
+test('要擋的時候，同一個來源同時在收 5 個以上的先擋；沒有這種來源時先擋最早的，不看哪個來源比較多', async () => {
+    const clock = { t: 0 };
+    const start = (maxBodyReads) => startGateway({
+        maxBodyReads,
+        now: () => clock.t,
+        server: { clientIpHeader: 'x-forwarded-for', trustedProxies: ['127.0.0.1/32'] },
+    });
+    const stall = async (gw, open, ip, at) => {
+        clock.t = at;
+        const socket = await rawSocket(gw.port);
+        socket.write(chunkedHead.replace('\r\n\r\n', `\r\nX-Forwarded-For: ${ip}\r\n\r\n`) + chunk('{"input":'));
+        open.push(socket);
+        await sleep(30);
+        return socket;
+    };
+    const newcomer = (gw) => rawRequest(gw.port, { headers: { ...jsonHeaders(), 'x-forwarded-for': '198.51.100.9' }, body: JSON.stringify({ input: { topic: 'x' } }) });
+    // 使用者最早開始收（而且很慢），另一個來源同時有 5 個
+    let gw = await start(6);
+    let open = [];
+    try {
+        const student = await stall(gw, open, '198.51.100.1', 0);
+        const flood = [];
+        for (let i = 1; i <= 5; i++) flood.push(await stall(gw, open, '198.51.100.2', i * 100));
+        clock.t = 5_000;
+        assert.equal((await newcomer(gw)).status, 200);
+        await flood[0].whenClosed;
+        assert.match(flood[0].text, /^HTTP\/1\.1 503 /);
+        assert.equal(student.text, '');
+        assert.ok(!student.destroyed);
+    } finally {
+        for (const socket of open) socket.destroy();
+        await gw.stop();
+    }
+    // 攻擊者分散到多個來源、每個只停住一個；共用一個 IP 的兩個使用者比較晚開始，不會因為同一個來源比較多就先被擋
+    clock.t = 0;
+    gw = await start(4);
+    open = [];
+    try {
+        const attackers = [await stall(gw, open, '198.51.100.3', 0), await stall(gw, open, '198.51.100.4', 50)];
+        const school = [await stall(gw, open, '198.51.100.5', 100), await stall(gw, open, '198.51.100.5', 200)];
+        clock.t = 5_000;
+        assert.equal((await newcomer(gw)).status, 200);
+        await attackers[0].whenClosed;
+        assert.match(attackers[0].text, /^HTTP\/1\.1 503 /);
+        assert.ok(school.every((socket) => socket.text === '' && !socket.destroyed));
+    } finally {
+        for (const socket of open) socket.destroy();
+        await gw.stop();
+    }
+});
+
+test('只差位元組時，沒收到東西的請求不擋', async () => {
+    const clock = { t: 0 };
+    const gw = await startGateway({ maxBodyBytes: 2_000, now: () => clock.t });
+    const empty = await rawSocket(gw.port);
+    const full = await rawSocket(gw.port);
+    try {
+        // 一個只送了標頭（0 bytes），一個收了 1500 bytes；新請求宣告 600 bytes
+        empty.write(`POST /v1/tasks/demo-json HTTP/1.1\r\nHost: x\r\nOrigin: ${ORIGIN}\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n`);
+        await sleep(30);
+        clock.t = 100;
+        full.write(chunkedHead + chunk(`{"input":{"topic":"${' '.repeat(1481)}`));
+        await sleep(30);
+        clock.t = 5_000;
+        const res = await rawRequest(gw.port, { headers: jsonHeaders(), body: JSON.stringify({ input: { topic: 'x' } }).padEnd(600, ' ') });
+        assert.equal(res.status, 200);
+        await full.whenClosed;
+        assert.match(full.text, /^HTTP\/1\.1 503 /);
+        assert.equal(empty.text, '');
+        assert.ok(!empty.destroyed);
+    } finally {
+        empty.destroy();
+        full.destroy();
+        await gw.stop();
+    }
+});
+
+test('body 超過任務上限回 413 時，已經收到的位元組照樣還回去', async () => {
+    const gw = await startGateway({ maxBodyBytes: 2_000 });
+    const socket = await rawSocket(gw.port);
+    try {
+        socket.write(chunkedHead + held);
+        await sleep(50);
+        socket.write(chunk(' '.repeat(200)));
+        await socket.whenClosed;
+        assert.match(socket.text, /^HTTP\/1\.1 413 /);
+        const after = await rawRequest(gw.port, { headers: { ...jsonHeaders(), 'transfer-encoding': 'chunked' }, body: JSON.stringify({ input: { topic: ' '.repeat(150) + 'x' } }) });
+        assert.equal(after.status, 200);
+    } finally {
+        socket.destroy();
+        await gw.stop();
+    }
+});
+
 test('標頭最多 8 KiB（超過回 431）；連線數上限是 2048', async () => {
     const gw = await startGateway();
     try {
@@ -2084,6 +3009,24 @@ test('標頭最多 8 KiB（超過回 431）；連線數上限是 2048', async ()
         const big = await rawRequest(gw.port, { headers: jsonHeaders({ 'x-pad': 'a'.repeat(9_000) }), body: JSON.stringify({ input: { topic: 'x' } }) });
         assert.equal(big.status, 431);
         assert.equal(gw.gateway.server.maxConnections, 2048);
+    } finally {
+        await gw.stop();
+    }
+});
+
+// 只限位元組的話，8 KiB 塞得下約 940 個很短的標頭，每一個都是一個字串
+test('標頭最多 64 個：30 個、64 個照常，66 個回 431', async () => {
+    const gw = await startGateway();
+    const withHeaders = (count) => {
+        // jsonHeaders 3 個，rawRequest 再加 Host、Content-Length 與 Connection
+        const extra = Object.fromEntries(Array.from({ length: count - 6 }, (_, i) => [`x-h${i}`, 'v']));
+        return rawRequest(gw.port, { headers: jsonHeaders(extra), body: JSON.stringify({ input: { topic: 'x' } }) });
+    };
+    try {
+        assert.equal((await withHeaders(30)).status, 200);
+        assert.equal((await withHeaders(64)).status, 200);
+        assert.equal((await withHeaders(66)).status, 431);
+        assert.equal(gw.calls.length, 2);
     } finally {
         await gw.stop();
     }
@@ -2119,6 +3062,385 @@ test('CLIENT-IP-UNTRUSTED：連線的位址不是內部位址時只記雜湊，�
         assert.match(warning.fields.peer, /^hash:[0-9a-f]{10}$/);
         assert.doesNotMatch(JSON.stringify(gw.logs), /::1|0:0:0:0::/);
     } finally {
+        await gw.stop();
+    }
+});
+
+// 第一輪被截斷在「1. 蒐集」，接續的一輪卻什麼都沒加就以 stop 結束：使用者拿到的是半句話
+const CUT_HEAD = '請先完成以下三項：\n1. 蒐集';
+const deltaText = (events) => events.filter((e) => e.event === 'delta').map((e) => e.data.text).join('');
+
+test('接續正文的一輪去重疊後沒有新增看得見的字就以 stop 結束：不送 done，第二次加提醒，連兩輪就以 incomplete 結束，已送出的部分不收回', async () => {
+    // 看不見的字元用 code point 產生（原始碼裡不能有看不見的字元）。韓文填充字是 Default_Ignorable，
+    // 片段裡就拿掉；點字空白不是，照樣送出，只是不算新增
+    const [hangulFiller, brailleBlank] = [0x3164, 0x2800].map((cp) => String.fromCodePoint(cp));
+    const cases = [
+        // [說明, 第二、三輪的正文, 這兩輪送出去的字]
+        ['只有空白', ['\n\n'], ''],
+        ['空字串', [], ''],
+        ['只重複結尾', ['蒐集'], ''],
+        ['只有韓文填充字', [hangulFiller], ''],
+        ['只有點字空白', [brailleBlank], brailleBlank.repeat(2)],
+    ];
+    for (const [label, again, sent] of cases) {
+        const gw = await startRealGateway([
+            { content: [CUT_HEAD], finish: 'length' },
+            { content: again, finish: 'stop' },
+            { content: again, finish: 'stop' },
+        ]);
+        try {
+            const events = await readEvents(await post(gw.base, 'demo-md', { question: '怎麼做專題？' }));
+            assert.equal(deltaText(events), CUT_HEAD + sent, label);
+            assert.ok(!events.some((e) => e.event === 'done'), label);
+            const last = events.at(-1);
+            assert.equal(last.event, 'error', label);
+            // 沒寫完是因為沒有進展，不是回答太長：訊息照實說，可以再試一次；log 分得出是哪一種
+            assert.deepEqual(last.data, { code: 'incomplete', message: 'AI 這次沒能把回答寫完，可以再試一次。', retryable: true }, label);
+            assert.match(gw.lines.find((l) => / TASK-ERR /.test(l)), /code=incomplete detail="模型連續兩輪沒有任何進展，提前結束"/, label);
+            assert.equal(gw.upstream.requests.length, 3, label);
+            const lastUser = (i) => gw.upstream.requests[i].body.messages.at(-1).content;
+            assert.ok(!lastUser(1).includes(DEGENERATE_NUDGE), `${label}：第一次接續不加提醒`);
+            assert.ok(lastUser(2).endsWith(DEGENERATE_NUDGE), `${label}：第二次接續的請求原本會一模一樣，加提醒`);
+            assert.match(gw.lines.find((l) => / TASK /.test(l)), /outcome=incomplete/, label);
+        } finally {
+            await gw.stop();
+        }
+    }
+});
+
+test('接續正文有新增的字就照常完成；第一輪就只有空白、JSON 重寫只有空白，照舊是 empty', async () => {
+    const cases = [
+        ['接著寫完', 'demo-md', [{ content: [CUT_HEAD], finish: 'length' }, { content: ['蒐集資料\n2. 分析\n3. 報告'], finish: 'stop' }],
+            { event: 'done', result: `${CUT_HEAD}資料\n2. 分析\n3. 報告` }],
+        ['只補一個標點', 'demo-md', [{ content: [CUT_HEAD], finish: 'length' }, { content: ['。'], finish: 'stop' }],
+            { event: 'done', result: `${CUT_HEAD}。` }],
+        ['第一輪只有空白', 'demo-md', [{ content: ['\n\n'], finish: 'stop' }], { event: 'error', code: 'empty' }],
+        ['JSON 重寫只有空白', 'demo-json', [{ content: ['{"answer":"生'], finish: 'length' }, { content: ['\n\n'], finish: 'stop' }],
+            { event: 'error', code: 'empty' }],
+    ];
+    for (const [label, task, script, expected] of cases) {
+        const gw = await startRealGateway(script);
+        try {
+            const input = task === 'demo-md' ? { question: '怎麼做專題？' } : { topic: '生物' };
+            const events = await readEvents(await post(gw.base, task, input));
+            const last = events.at(-1);
+            assert.equal(last.event, expected.event, `${label}：${JSON.stringify(last)}`);
+            if (expected.event === 'done') {
+                assert.equal(last.data.result, expected.result, label);
+                assert.equal(deltaText(events), expected.result, label);
+            } else {
+                assert.equal(last.data.code, expected.code, label);
+            }
+            assert.equal(gw.upstream.requests.length, script.length, label);
+        } finally {
+            await gw.stop();
+        }
+    }
+});
+
+test('接續輪遇到 429、Retry-After 比剩下的總時限長（3600 秒、一小時後的 HTTP-date）：不重試，照忙線回報並轉告要等的秒數', async () => {
+    const cases = [['秒數', () => '3600'], ['HTTP-date', () => new Date(Date.now() + 3_600_000).toUTCString()]];
+    for (const [label, header] of cases) {
+        const gw = await startRealGateway((req, i) => (i === 0
+            ? { content: [CUT_HEAD], finish: 'length' }
+            : { status: 429, headers: { 'retry-after': header() }, body: { error: { message: 'rate limited', code: '429' } } }));
+        try {
+            const events = await readEvents(await post(gw.base, 'demo-md', { question: '怎麼做專題？' }));
+            const last = events.at(-1);
+            assert.equal(last.event, 'error', label);
+            assert.deepEqual([last.data.code, last.data.retryable], ['busy', true], label);
+            // HTTP-date 只到秒，算出來可能少一秒
+            assert.ok(last.data.retryAfter >= 3599 && last.data.retryAfter <= 3600, `${label}：${last.data.retryAfter}`);
+            assert.equal(deltaText(events), CUT_HEAD, label);
+            assert.equal(gw.upstream.requests.length, 2, `${label}：不重試`);
+            const fields = logFields(gw.lines.find((l) => / UPSTREAM-ERR /.test(l)));
+            assert.deepEqual([fields.status, fields.retryAfter], ['429', String(last.data.retryAfter)], label);
+        } finally {
+            await gw.stop();
+        }
+    }
+});
+
+test('上游沒照 max_tokens 停、一直送正文：超過一個回應的上限就中止，瀏覽器收到 unavailable，UPSTREAM-ERR 記 protocol', async () => {
+    // 送 1 MiB 多要一點時間，CPU 被搶時 4 秒的任務時限可能先到：放寬到 30 秒
+    const gw = await startRealGateway([{ content: Array.from({ length: 270 }, () => 'x'.repeat(4096)), finish: 'stop' }], { taskTimeoutMs: 30_000 });
+    try {
+        const events = await readEvents(await post(gw.base, 'demo-md', { question: '怎麼做專題？' }));
+        const last = events.at(-1);
+        assert.equal(last.event, 'error', JSON.stringify(last).slice(0, 200));
+        assert.equal(last.data.code, 'unavailable');
+        assert.ok(!events.some((e) => e.event === 'done'));
+        const fields = logFields(gw.lines.find((l) => / UPSTREAM-ERR /.test(l)));
+        assert.equal(fields.code, 'protocol');
+        assert.match(fields.reason, new RegExp(`${8192 * 128 + 4096} 字元`));
+    } finally {
+        await gw.stop();
+    }
+});
+
+// 2026-10-31 的探測：指令要求 200 字以內的任務，假上游照被誘導的模型寫，三輪寫出 15269 字
+test('文字任務的回答超過 maxOutputChars：超過的那一段不送，中止上游、不開下一輪；錯誤是 incomplete，片段就是已寫的部分', async () => {
+    const piece = '這一段與題目無關的內容。';
+    const gw = await startRealGateway([
+        { content: Array.from({ length: 60 }, () => piece), finish: 'length', chunkDelayMs: 20 },
+        { content: ['不該送出'], finish: 'stop' },
+    ]);
+    try {
+        const started = Date.now();
+        const events = await readEvents(await post(gw.base, 'demo-capped', { question: '寫一篇長文' }));
+        // 60 塊、每塊間隔 20ms 送完要 1.2 秒以上
+        assert.ok(Date.now() - started < 1_000, `${Date.now() - started}ms`);
+        const text = events.filter((e) => e.event === 'delta').map((e) => e.data.text).join('');
+        assert.equal(text, piece);
+        const last = events.at(-1);
+        assert.equal(last.event, 'error');
+        assert.equal(last.data.code, 'incomplete');
+        assert.equal(last.data.retryable, true);
+        assert.match(last.data.message, /超過長度上限/);
+        assert.ok(!events.some((e) => e.event === 'done'));
+        assert.equal(gw.upstream.requests.length, 1);
+        assert.match(logFields(gw.lines.find((l) => / TASK-ERR /.test(l))).detail, /20 字/);
+    } finally {
+        await gw.stop();
+    }
+});
+
+test('maxOutputChars 交給 generate（maxContentChars）；generate 沒擋下時，交出前的檢查照樣回 incomplete，已送出的片段不收回', async () => {
+    const long = '字'.repeat(21);
+    const gw = await startGateway({
+        generate: async (request, hooks) => {
+            hooks.onContent(long);
+            return { ...OK_RESULT, content: long };
+        },
+    });
+    try {
+        const events = await readEvents(await post(gw.base, 'demo-capped', { question: 'q' }));
+        assert.equal(gw.calls[0].request.maxContentChars, 20);
+        assert.deepEqual(events.filter((e) => e.event === 'delta').map((e) => e.data.text), [long]);
+        assert.equal(events.at(-1).data.code, 'incomplete');
+        assert.match(events.at(-1).data.message, /超過長度上限/);
+        const other = await readEvents(await post(gw.base, 'demo-md', { question: 'q' }));
+        assert.equal(gw.calls[1].request.maxContentChars, undefined);
+        assert.equal(other.at(-1).event, 'done');
+    } finally {
+        await gw.stop();
+    }
+});
+
+/** 送出任務請求之後完全不讀回應的用戶端：沒有 data 的監聽，緩衝滿了 TCP 視窗就是零 */
+async function silentClient(port, task, input) {
+    const socket = net.connect(port, '127.0.0.1');
+    socket.on('error', (err) => { socket.errorCode = err.code; });
+    socket.whenClosed = new Promise((resolve) => socket.on('close', resolve));
+    await new Promise((resolve) => socket.once('connect', resolve));
+    socket.write(rawPost(task, input));
+    return socket;
+}
+
+// 一直送 16 KiB 的片段，直到被中止或送滿 limit；回傳 { generate, state }
+function floodingGenerate(limit, { waitAfter = false } = {}) {
+    const state = { emitted: 0, aborted: false };
+    const piece = 'x'.repeat(16 * 1024);
+    const generate = async (request, hooks) => {
+        while (!hooks.signal.aborted && state.emitted < limit) {
+            hooks.onContent(piece);
+            state.emitted += piece.length;
+            await new Promise((resolve) => setImmediate(resolve));
+        }
+        if (waitAfter && !hooks.signal.aborted) {
+            await new Promise((resolve) => hooks.signal.addEventListener('abort', resolve, { once: true }));
+        }
+        state.aborted = hooks.signal.aborted;
+        throw new UpstreamError('aborted', '取消');
+    };
+    return { generate, state };
+}
+
+/**
+ * 閘道在時限內認定用戶端不收資料：上游被中止、TASK 記 client_stalled、499 與判定的門檻、伺服器那端
+ * 的連線已經放掉。不讀的用戶端要讀了才會發現連線被 RST 關掉，讀的時候拿到 ECONNRESET（FIN 的話
+ * 會先讀到排著的資料再正常結束）
+ */
+async function expectStalled(gw, flood, socket, stall) {
+    // CPU 被搶時，灌滿緩衝與判定不收資料都會慢：等到 15 秒
+    await waitFor(() => gw.logs.some((l) => l.tag === 'TASK'), 15_000);
+    const task = gw.logs.find((l) => l.tag === 'TASK').fields;
+    assert.deepEqual([task.outcome, task.status, task.stall], ['client_stalled', 499, stall]);
+    assert.ok(task.pending > 0);
+    assert.equal(flood.state.aborted, true, '上游沒有被中止');
+    const connections = () => new Promise((resolve) => gw.gateway.server.getConnections((err, n) => resolve(n)));
+    let open = await connections();
+    for (let i = 0; i < 100 && open > 0; i++) {
+        await sleep(10);
+        open = await connections();
+    }
+    assert.equal(open, 0, '伺服器那端的連線還在');
+    socket.resume();
+    assert.equal(await within(socket.whenClosed, 2_000), true, '用戶端讀了之後連線沒有結束');
+    assert.equal(socket.errorCode, 'ECONNRESET');
+}
+
+test('用戶端不讀資料：生成期間待送的資料超過上限，就中止上游並關掉連線，不繼續排進記憶體', async () => {
+    const flood = floodingGenerate(32 * 1024 * 1024);
+    const gw = await startGateway({ maxPendingBytes: 64 * 1024, stallTimeoutMs: 60_000, generate: flood.generate });
+    const socket = await silentClient(gw.port, 'demo-md', { question: '長' });
+    try {
+        await expectStalled(gw, flood, socket, 'pending');
+        assert.ok(flood.state.emitted < 32 * 1024 * 1024, `送了 ${flood.state.emitted} 字元才停`);
+    } finally {
+        socket.destroy();
+        await gw.stop();
+    }
+});
+
+test('用戶端不讀資料、待送的資料還沒到上限：write() 回 false 之後等 drain 有時限，時間到就中止上游並關掉連線', async () => {
+    const flood = floodingGenerate(16 * 1024 * 1024, { waitAfter: true });
+    const gw = await startGateway({ maxPendingBytes: 1024 * 1024 * 1024, stallTimeoutMs: 300, generate: flood.generate });
+    const socket = await silentClient(gw.port, 'demo-md', { question: '長' });
+    try {
+        await expectStalled(gw, flood, socket, 'drain_timeout');
+    } finally {
+        socket.destroy();
+        await gw.stop();
+    }
+});
+
+test('正常讀取的用戶端不受影響：4 MiB 的片段與同樣大的 done 都收到', async () => {
+    const piece = 'y'.repeat(16 * 1024);
+    const gw = await startGateway({
+        maxPendingBytes: 256 * 1024,
+        stallTimeoutMs: 300,
+        generate: async (request, hooks) => {
+            for (let i = 0; i < 256; i++) {
+                hooks.onContent(piece);
+                await new Promise((resolve) => setImmediate(resolve));
+            }
+            return { ...OK_RESULT, content: piece.repeat(256) };
+        },
+    });
+    try {
+        const events = await readEvents(await post(gw.base, 'demo-md', { question: '長' }));
+        assert.equal(events.at(-1).event, 'done');
+        assert.equal(events.at(-1).data.result.length, 4 * 1024 * 1024);
+        assert.equal(deltaText(events).length, 4 * 1024 * 1024);
+        assert.equal(gw.logs.find((l) => l.tag === 'TASK').fields.outcome, 'ok');
+    } finally {
+        await gw.stop();
+    }
+});
+
+const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+/**
+ * 時鐘用 mock，不必真的等（只換掉 setTimeout，網路照常運作）。stallTimeoutMs 用別處不會用到的 ms，
+ * 記下這個長度的計時器有沒有排著。backedUp() 在計時器排著、連續 10 輪事件迴圈都沒被 drain 清掉時
+ * 才是 true：一次寫入超過 16 KiB 時 write() 就會回 false，核心緩衝收得下的話 drain 馬上就來。
+ * restore() 換回真的計時器：測試失敗時 gw.stop() 等的計時器才會到
+ */
+function watchStall(t, ms) {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const set = globalThis.setTimeout;
+    const clear = globalThis.clearTimeout;
+    const live = new Set();
+    globalThis.setTimeout = (fn, delay, ...args) => {
+        const id = set((...a) => {
+            live.delete(id);
+            fn(...a);
+        }, delay, ...args);
+        if (delay === ms) live.add(id);
+        return id;
+    };
+    globalThis.clearTimeout = (id) => {
+        live.delete(id);
+        clear(id);
+    };
+    const restore = () => {
+        Object.assign(globalThis, { setTimeout: set, clearTimeout: clear });
+        t.mock.timers.reset();
+    };
+    const backedUp = async () => {
+        for (let i = 0; i < 10; i++) await nextTurn();
+        return live.size > 0;
+    };
+    return { backedUp, restore };
+}
+
+// 一直送 256 KiB 的片段，直到閘道在等 drain；之後等 release() 才交出結果
+function floodUntilBackedUp(backedUp) {
+    const state = { sent: 0, backedUp: false };
+    let release;
+    const released = new Promise((resolve) => { release = resolve; });
+    const piece = 'x'.repeat(256 * 1024);
+    const generate = async (request, hooks) => {
+        while (state.sent < 64 * 1024 * 1024 && !state.backedUp) {
+            hooks.onContent(piece);
+            state.sent += piece.length;
+            state.backedUp = await backedUp();
+        }
+        await released;
+        return { ...OK_RESULT, content: 'ok' };
+    };
+    return { generate, state, release };
+}
+
+/** 讓暫停的用戶端開始讀，讀到 done 或連線結束為止；回傳讀到的結尾 */
+async function readToEnd(socket) {
+    let tail = '';
+    socket.setEncoding('latin1');
+    socket.on('data', (d) => { tail = (tail + d).slice(-200); });
+    socket.resume();
+    while (!tail.includes('event: done') && !socket.destroyed) await nextTurn();
+    return tail;
+}
+
+test('用戶端暫停讀取到閘道開始等 drain、在時限內恢復讀取：drain 清掉計時器，之後過了時限也照常收到 done', async (t) => {
+    const STALL_MS = 1_234;
+    const watch = watchStall(t, STALL_MS);
+    const flood = floodUntilBackedUp(watch.backedUp);
+    const gw = await startGateway({ maxPendingBytes: 1024 * 1024 * 1024, stallTimeoutMs: STALL_MS, generate: flood.generate });
+    const socket = await silentClient(gw.port, 'demo-md', { question: '長' });
+    try {
+        while (!flood.state.backedUp) {
+            assert.ok(flood.state.sent < 64 * 1024 * 1024, '送了 64 MiB，閘道都沒有開始等 drain');
+            await nextTurn();
+        }
+        t.mock.timers.tick(STALL_MS - 1);
+        let received = 0;
+        socket.on('data', (d) => { received += d.length; });
+        const reading = readToEnd(socket);
+        while (received < flood.state.sent) await nextTurn();
+        // drain 之後計時器已經清掉；時鐘再走過時限也不能判定用戶端不收資料
+        t.mock.timers.tick(10 * STALL_MS);
+        flood.release();
+        assert.match(await reading, /event: done/);
+        while (!gw.logs.some((l) => l.tag === 'TASK')) await nextTurn();
+        assert.equal(gw.logs.find((l) => l.tag === 'TASK').fields.outcome, 'ok');
+    } finally {
+        watch.restore();
+        flood.release();
+        socket.destroy();
+        await gw.stop();
+    }
+});
+
+test('生成結束時用戶端還沒收完：生成期間的計時器在 finally 清掉，過了 stallTimeoutMs 才讀也照常收到 done', async (t) => {
+    const STALL_MS = 1_235;
+    const watch = watchStall(t, STALL_MS);
+    const flood = floodUntilBackedUp(watch.backedUp);
+    flood.release();
+    const gw = await startGateway({ maxPendingBytes: 1024 * 1024 * 1024, stallTimeoutMs: STALL_MS, generate: flood.generate });
+    const socket = await silentClient(gw.port, 'demo-md', { question: '長' });
+    try {
+        while (!gw.logs.some((l) => l.tag === 'TASK')) await nextTurn();
+        assert.equal(flood.state.backedUp, true, '送了 64 MiB，閘道都沒有開始等 drain');
+        // 回應寫完之後歸 DRAIN_TIMEOUT_MS（30 秒）管，生成期間的計時器不能再把連線關掉
+        t.mock.timers.tick(10 * STALL_MS);
+        assert.match(await readToEnd(socket), /event: done/);
+        assert.equal(gw.logs.find((l) => l.tag === 'TASK').fields.outcome, 'ok');
+    } finally {
+        watch.restore();
+        flood.release();
+        socket.destroy();
         await gw.stop();
     }
 });
