@@ -6,7 +6,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SlotGate, ClientLimiter, Breaker, LimitError, clientKey, createProxyMatcher } from '../src/limits.mjs';
+import { SlotGate, ClientLimiter, Breaker, LimitError, clientKey, createProxyMatcher, createSourceMatcher, parseCidr, formatCidr, coversAllIPv4, blockRangeProblem, sourcePrefix } from '../src/limits.mjs';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -434,6 +434,20 @@ test('clientKey：IPv6 取 /64（同一段視為同一來源，大小寫與省�
 });
 
 // 2002:cb00:7105::/48 是 203.0.113.5 的 6to4 前綴（文件用的位址段）
+test('clientKey：IPv6 的前綴長度可以指定，不是 16 的倍數時那一組只留前面的位元；IPv4 與內嵌 IPv4 不受影響', () => {
+    assert.equal(clientKey('2001:db8:1:2:3:4:5:6', 48), '2001:db8:1::/48');
+    assert.equal(clientKey('2001:db8:1:2:3:4:5:6', 32), '2001:db8::/32');
+    assert.equal(clientKey('2001:db8:1:2ff:3:4:5:6', 56), '2001:db8:1:200::/56');
+    assert.equal(clientKey('2001:db8:1:2ff:3:4:5:6', 60), '2001:db8:1:2f0::/60');
+    assert.equal(clientKey('2001:DB8:1:2:3:4:5:6', 128), '2001:db8:1:2:3:4:5:6/128');
+    assert.equal(clientKey('2001:db8:1:2:3:4:5:6', 112), '2001:db8:1:2:3:4:5::/112');
+    assert.equal(clientKey('2001:db8:1:2:3:4:5:6', 64), clientKey('2001:db8:1:2:3:4:5:6'));
+    assert.equal(clientKey('2001:db8:1:2::1', 48), clientKey('2001:db8:1:ffff::1', 48));
+    for (const address of ['203.0.113.5', '::ffff:203.0.113.5', '2002:cb00:7105::1', '2001:0:c000:201:0:0:34ff:8efa']) {
+        assert.equal(clientKey(address, 32), '203.0.113.5', address);
+    }
+});
+
 test('clientKey：6to4（2002::/16）取內嵌的 IPv4，同一個 IPv4 的各個 /64 與 IPv4 本身都是同一個桶', () => {
     for (const address of ['2002:cb00:7105::1', '2002:cb00:7105:1::1', '2002:CB00:7105:ffff:1:2:3:4', '[2002:cb00:7105:2::9]:443']) {
         assert.equal(clientKey(address), '203.0.113.5', address);
@@ -460,8 +474,121 @@ test('clientKey：帶埠、方括號、zone id 的寫法先剝掉；不是 IP �
     assert.equal(clientKey('fe80::1%eth0'), 'fe80:0:0:0::/64');
     // zone id 不剝掉的話，結尾的 IPv4 認不出來，IPv4 對應位址就還原不了
     assert.equal(clientKey('::ffff:203.0.113.5%eth0'), '203.0.113.5');
+    // isIP 收含冒號的 zone id；沒剝掉的話 ::ffff 後面的 :cb00:7105 會被當成位址，變成 203.0.113.5
+    assert.equal(clientKey('::ffff%x:cb00:7105'), '0:0:0:0::/64');
+    assert.equal(createSourceMatcher(['203.0.113.0/24'])('::ffff%x:cb00:7105'), false);
     for (const junk of ['', undefined, 'unknown', 'not-an-ip', '1.2.3.256', 'x'.repeat(10_000), '203.0.113.5, 198.51.100.1']) {
         assert.equal(clientKey(junk), 'invalid', String(junk).slice(0, 30));
+    }
+});
+
+test('parseCidr：IPv4、IPv6 的位址或 CIDR，前綴以外的位元清掉並標出 hostBits；zone id、方括號、埠、超過長度的前綴都不收', () => {
+    assert.deepEqual(parseCidr('192.0.2.0/24'), { v6: false, bits: 24, base: 0xc0000200, hostBits: false });
+    assert.deepEqual(parseCidr('192.0.2.5/24'), { v6: false, bits: 24, base: 0xc0000200, hostBits: true });
+    assert.deepEqual(parseCidr('192.0.2.5'), { v6: false, bits: 32, base: 0xc0000205, hostBits: false });
+    assert.deepEqual(parseCidr('2001:DB8:1:2::/48'), { ...parseCidr('2001:db8:1::/48'), hostBits: true });
+    assert.equal(parseCidr('::1').bits, 128);
+    for (const bad of ['', 'abc', '192.0.2.0/33', '2001:db8::/129', '192.0.2.01', 'fe80::1%eth0', 'fe80::1%eth0/64', '[2001:db8::1]', '192.0.2.1:80', '192.0.2.0/24/8', '192.0.2.0/']) {
+        assert.equal(parseCidr(bad), null, bad);
+    }
+});
+
+test('parseCidr：::ffff:a.b.c.d/(96+n) 換成 IPv4 的 a.b.c.d/n；formatCidr 寫回', () => {
+    assert.deepEqual(parseCidr('::ffff:203.0.113.0/120'), parseCidr('203.0.113.0/24'));
+    assert.deepEqual(parseCidr('::FFFF:CB00:7105'), parseCidr('203.0.113.5'));
+    assert.deepEqual(parseCidr('::ffff:0:0/96'), parseCidr('0.0.0.0/0'));
+    assert.equal(parseCidr('::ffff:0:0/95').v6, true);
+    for (const [text, written] of [['::ffff:203.0.113.9/120', '203.0.113.0/24'], ['192.0.2.5', '192.0.2.5/32'], ['2001:DB8:1:2::/48', '2001:db8:1::/48'], ['2001:db8::1', '2001:db8:0:0:0:0:0:1/128']]) {
+        assert.equal(formatCidr(parseCidr(text)), written, text);
+        assert.deepEqual(parseCidr(written), { ...parseCidr(text), hostBits: false }, text);
+    }
+});
+
+test('coversAllIPv4：IPv4 的 /0，以及包含 ::ffff:0:0/96 的 IPv6 範圍', () => {
+    for (const text of ['0.0.0.0/0', '192.0.2.1/0', '::/0', '::/64', '::/80', '0:0:0::/48', '::ffff:0:0/96', '::ffff:0:0/95', '::ffff:192.0.2.4/96']) {
+        assert.equal(coversAllIPv4(parseCidr(text)), true, text);
+    }
+    for (const text of ['0.0.0.0/1', '::/96', '::1', '0:0:0:0:0:fffe::/96', '2001:db8::/32', '2002::/16', '::ffff:192.0.2.0/120']) {
+        assert.equal(coversAllIPv4(parseCidr(text)), false, text);
+    }
+});
+
+test('blockRangeProblem：涵蓋所有 IPv4、比 IPv4 /8 或 IPv6 /16 大、前綴之後還有 1 的範圍不收', () => {
+    const cases = {
+        '0.0.0.0/0': 'all-ipv4', '::/0': 'all-ipv4', '::/80': 'all-ipv4', '::ffff:192.0.2.4/96': 'all-ipv4',
+        '192.0.0.0/7': 'too-broad', '2000::/15': 'too-broad', '::ffff:192.0.2.4/97': 'too-broad',
+        '203.0.113.0/2': 'too-broad', '198.51.100.7/24': 'host-bits', '2001:db8::1/32': 'host-bits',
+        '10.0.0.0/8': null, '2001::/16': null, '192.0.2.7': null, '::ffff:192.0.2.0/120': null, '2001:db8:1::/48': null,
+    };
+    for (const [text, problem] of Object.entries(cases)) assert.equal(blockRangeProblem(parseCidr(text)), problem, text);
+});
+
+test('createSourceMatcher：IPv4 範圍比對 IPv4 位址與內嵌的用戶端 IPv4（對應位址、6to4、Teredo），::ffff: 寫法的範圍也是', () => {
+    // 6to4 的 2002:c000:0207::/48 與 Teredo 反相後都是 192.0.2.7，跟 clientKey 取的一樣
+    const addresses = ['192.0.2.7', '192.0.2.7:443', '::ffff:192.0.2.7', '::FFFF:C000:207', '[::ffff:192.0.2.7]:80', '::ffff:192.0.2.7%eth0', '2002:c000:207::1', '2002:C000:0207:ffff::9', '2001:0:c000:201:8000:63bf:3fff:fdf8'];
+    for (const blocked of [createSourceMatcher(['192.0.2.0/24']), createSourceMatcher(['::ffff:192.0.2.0/120'])]) {
+        for (const address of addresses) {
+            assert.equal(blocked(address), true, address);
+            assert.equal(clientKey(address), '192.0.2.7', address);
+        }
+        for (const address of ['203.0.113.9', '2002:cb00:7109::1', '2001:db8:c000:207::1', '::192.0.2.7', '', 'junk', undefined]) {
+            assert.equal(blocked(address), false, String(address));
+        }
+    }
+});
+
+test('createSourceMatcher：IPv6 範圍比對原本的 IPv6 位址；寫錯或涵蓋所有 IPv4 的項目丟例外', () => {
+    const blocked = createSourceMatcher(['2001:db8:1::/48', '2002::/16']);
+    for (const address of ['2001:db8:1::1', '2001:DB8:1:FFFF:1:2:3:4', '[2001:db8:1::5]:443', '2001:db8:1::1%eth0', '2002:c000:207::1']) {
+        assert.equal(blocked(address), true, address);
+    }
+    for (const address of ['2001:db8:2::1', '192.0.2.7', '::ffff:192.0.2.7', '::1']) {
+        assert.equal(blocked(address), false, address);
+    }
+    assert.equal(createSourceMatcher([])('192.0.2.7'), false);
+    for (const bad of ['192.0.2.0/33', '0.0.0.0/0', '::/0', '::/80', '203.0.113.0/2', '198.51.100.7/24']) {
+        assert.throws(() => createSourceMatcher([bad]), /不合法的 CIDR/, bad);
+    }
+});
+
+test('createSourceMatcher：前綴長度的邊界（IPv4 /8、/31、/32，IPv6 /16、/127、/128）', () => {
+    const cases = [
+        ['10.0.0.0/8', '10.255.255.255', '11.0.0.0'],
+        ['192.0.2.6/31', '192.0.2.7', '192.0.2.8'],
+        ['192.0.2.7/32', '192.0.2.7', '192.0.2.6'],
+        ['2001::/16', '2001:ffff::1', '2002:1::1'],
+        ['2001:db8::/127', '2001:db8::1', '2001:db8::2'],
+        ['2001:db8::1/128', '2001:db8::1', '2001:db8::'],
+    ];
+    for (const [cidr, inside, outside] of cases) {
+        const blocked = createSourceMatcher([cidr]);
+        assert.equal(blocked(inside), true, `${cidr} ${inside}`);
+        assert.equal(blocked(outside), false, `${cidr} ${outside}`);
+    }
+});
+
+test('sourcePrefix：IPv4 與內嵌的 IPv4 取 /24，IPv6 取 /48（v6Prefix 較短時照它）；寫出的網段貼進封鎖清單都收', () => {
+    const cases = [
+        ['203.0.113.5', '203.0.113.0/24'],
+        ['::ffff:203.0.113.5', '203.0.113.0/24'],
+        ['2002:cb00:7105::1', '203.0.113.0/24'],
+        ['[2001:db8:1:2::1]:443', '2001:db8:1::/48'],
+        ['2001:DB8:1:2::1%eth0', '2001:db8:1::/48'],
+        // ::/48 涵蓋所有 IPv4，貼進封鎖清單不收：加長到不涵蓋為止
+        ['::1', '0:0:0:0:0:0::/96'],
+        ['::192.0.2.7', '0:0:0:0:0:0::/96'],
+        ['0:0:0:1::5', '0:0:0:1::/64'],
+        ['0:0:0:0:1::5', '0:0:0:0:1::/80'],
+    ];
+    for (const [address, prefix] of cases) {
+        assert.equal(sourcePrefix(address), prefix, address);
+        assert.equal(blockRangeProblem(parseCidr(prefix)), null, prefix);
+        assert.equal(createSourceMatcher([prefix])(address), true, address);
+    }
+    assert.equal(sourcePrefix('2001:db8:1:2::1', 32), '2001:db8::/32');
+    assert.equal(sourcePrefix('2001:db8:1:2::1', 128), '2001:db8:1::/48');
+    for (const value of ['invalid', '', undefined, 'x/64', '203.0.113.5/24']) {
+        assert.equal(sourcePrefix(value), 'invalid', String(value));
     }
 });
 

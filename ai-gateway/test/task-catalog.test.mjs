@@ -26,7 +26,7 @@ function pageWiring(page, inputId) {
     const html = readRepoFile(page);
     const promptType = /promptType: '(\w+)'/.exec(html)?.[1];
     const tag = new RegExp(`<(?:textarea|input)\\b[^>]*\\bid="${inputId}"[^>]*>`).exec(html)?.[0] ?? '';
-    const mapping = new RegExp(`\\b${promptType}: \\{ id: '([a-z-]+)', field: '(\\w+)' \\}`).exec(readRepoFile('assets/js/ai-chat.js'));
+    const mapping = new RegExp(`\\b${promptType}: \\{\\s*id: '([a-z-]+)',\\s*field: '(\\w+)'`).exec(readRepoFile('assets/js/ai-chat.js'));
     assert.ok(promptType && mapping, `${page}：找不到 promptType 或 ai-chat.js 的對應`);
     return { taskId: mapping[1], field: mapping[2], maxlength: Number(/\bmaxlength="(\d+)"/.exec(tag)?.[1]) };
 }

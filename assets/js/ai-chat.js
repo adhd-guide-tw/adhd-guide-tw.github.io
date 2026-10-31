@@ -5,7 +5,13 @@
 const ADHDChat = {
     // 頁面的 promptType 對應的任務與欄位。字數上限在閘道，輸入框的 maxlength 要與它相同。
     tasks: {
-        faq: { id: 'adhd-faq', field: 'question' },
+        // 常見問答的免責聲明是模型寫在答案結尾的，沒寫完的答案沒有它，由頁面補上（partialHtml）。
+        // 文字要與 ai-gateway/src/task-catalog.mjs 的相同，test/ai-chat.test.mjs 會檢查。
+        faq: {
+            id: 'adhd-faq',
+            field: 'question',
+            notice: '**請注意：** 這是 AI 產生的衛教資訊，可能有錯，不能取代醫師的診斷，也請不要自行調整藥物。若你正處於危險中，請撥 119，或撥 1925 安心專線（24 小時）。'
+        },
         taskSlicer: { id: 'adhd-task-slicer', field: 'task' },
         noteGenerator: { id: 'adhd-visit-notes', field: 'notes' }
     },
@@ -22,14 +28,27 @@ const ADHDChat = {
             .replace(/'/g, '&#39;');
     },
 
-    // 沒寫完的回答可能停在粗體中間（「**接下來 2 分鐘」），畫面上會留著字面的 **。最後一行的 ** 是
-    // 奇數個時拿掉最後一個；後面接著空白、又不在行尾的不是記號（「3 ** 2」），留著。
-    dropUnclosedBold(text) {
+    // 沒寫完的回答可能停在粗體中間（「**接下來 2 分鐘」「**接下來 2 分鐘*」），畫面上會留著字面的星號。
+    // 只看最後一行：** 是奇數個時拿掉最後一個，落單的 * 是奇數個時也拿掉最後一個。行首的清單記號，以及
+    // 後面接著空白、又不在行尾的星號（「3 * 4」）都不是記號，留著。
+    dropUnclosedMarkers(text) {
         const start = text.lastIndexOf('\n') + 1;
-        if ((text.slice(start).match(/\*\*/g) || []).length % 2 === 0) return text;
-        const at = text.lastIndexOf('**');
-        if (/\s/.test(text.charAt(at + 2))) return text;
-        return text.slice(0, at) + text.slice(at + 2);
+        const lead = text.slice(start).match(/^\s*(?:[-*]|\d+\.)\s+/);
+        const head = text.slice(0, start + (lead ? lead[0].length : 0));
+        let body = text.slice(head.length);
+        const isMarker = (at, length) => !/\s/.test(body.charAt(at + length));
+        if ((body.match(/\*\*/g) || []).length % 2) {
+            const at = body.lastIndexOf('**');
+            if (isMarker(at, 2)) body = body.slice(0, at) + body.slice(at + 2);
+        }
+        if ((body.replace(/\*\*/g, '').match(/\*/g) || []).length % 2) {
+            for (let at = body.length - 1; at >= 0; at--) {
+                if (body[at] !== '*' || body[at - 1] === '*' || body[at + 1] === '*') continue;
+                if (isMarker(at, 1)) body = body.slice(0, at) + body.slice(at + 1);
+                break;
+            }
+        }
+        return head + body;
     },
 
     /**
@@ -39,7 +58,7 @@ const ADHDChat = {
      * @param {string} text @param {boolean} [partial] @returns {string}
      */
     markdownToHtml(text, partial = false) {
-        let html = this.escapeHtml(partial ? this.dropUnclosedBold(text) : text).replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#BF4040]">$1</strong>');
+        let html = this.escapeHtml(partial ? this.dropUnclosedMarkers(text) : text).replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#BF4040]">$1</strong>');
         html = html.replace(/^---$/gm, '<hr class="my-4 border-gray-300">');
 
         const lines = html.split('\n');
@@ -101,6 +120,16 @@ const ADHDChat = {
         if (inUnorderedList) result.push('</ul>');
 
         return result.join('');
+    },
+
+    /**
+     * partialHtml 把沒寫完的答案畫成 HTML：先標明沒有寫完，任務有 notice 時補在最後。
+     * @param {{notice?: string}} task @param {string} partial @returns {string}
+     */
+    partialHtml(task, partial) {
+        return '<p class="text-sm font-semibold text-gray-600">AI 的回答（沒有寫完）</p>'
+            + this.markdownToHtml(partial, true)
+            + (task.notice ? this.markdownToHtml(`---\n${task.notice}`) : '');
     },
 
     /**
@@ -228,8 +257,7 @@ const ADHDChat = {
                 if (progress) progress.finish();
                 // 錯誤帶著已經收到的答案（沒寫完、斷線、逾時）就留在畫面上，標明沒有寫完；使用者取消時沒有。
                 if (error && error.partial) {
-                    output.innerHTML = '<p class="text-sm font-semibold text-gray-600">AI 的回答（沒有寫完）</p>'
-                        + this.markdownToHtml(error.partial, true);
+                    output.innerHTML = this.partialHtml(this.tasks[promptType] || this.tasks.faq, error.partial);
                     if (resultContainer) resultContainer.classList.remove('hidden');
                 } else {
                     output.innerHTML = '';
