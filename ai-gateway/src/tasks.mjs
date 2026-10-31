@@ -14,7 +14,7 @@
  *                 使用者看到的是半句話。所以要在 instructions 裡明確告訴模型長度，maxLength 只當保險。
  *                 check(value) 檢查 schema 表達不了的規則，schema 通過才呼叫；回傳 null 才算通過，
  *                 否則回傳問題描述。描述會進 log，只能寫路徑與規格，不能寫模型寫的內容；以路徑開頭
- *                 （$.weekly_plan[1].week），JSON-REJECT 才記得到是哪裡。丟出例外算程式錯誤，HTTP 服務回 internal
+ *                 （$.steps[1].label），JSON-REJECT 才記得到是哪裡。丟出例外算程式錯誤，HTTP 服務回 internal
  *   maxOutputChars 選填，只用在文字任務：回答最多幾個字（算法同 maxLength，另外最多 maxOutputChars × 4
  *                 個 code point）。指令裡的長度模型不一定照做，被輸入誘導時可以一路續寫到用完輪數。
  *                 生成時超過就中止，以 incomplete 結束。正常的回答碰不到：設成指令字數的 4 倍
@@ -261,6 +261,14 @@ export function inputByteLimit(task) {
 }
 
 /**
+ * 欄位超過字數上限時的訊息。current 是目前的字數（「21 字」「超過 40 字」）；body 太大、還沒解析時
+ * 不知道，省略。400 與 413 用同一句，使用者看到的說法一樣
+ */
+export function tooLongMessage(spec, current) {
+    return `${spec.label}最多 ${spec.maxLength} 字${current ? `（目前${current}）` : ''}，請縮短後再試。`;
+}
+
+/**
  * 驗證並正規化輸入：必須是物件、只能有宣告過的欄位、每個欄位都是有內容的字串且不超過上限。
  */
 export function validateInput(task, raw) {
@@ -280,10 +288,8 @@ export function validateInput(task, raw) {
         const shownLimit = spec.maxLength * 2;
         const length = countChars(cleaned, shownLimit);
         if (length > spec.maxLength) {
-            const message = length > shownLimit
-                ? `${spec.label}最多 ${spec.maxLength} 字（目前超過 ${shownLimit} 字）`
-                : `${spec.label}最多 ${spec.maxLength} 字（目前 ${length} 字）`;
-            throw new TaskError('invalid_input', message, { field: name });
+            const current = length > shownLimit ? `超過 ${shownLimit} 字` : ` ${length} 字`;
+            throw new TaskError('invalid_input', tooLongMessage(spec, current), { field: name });
         }
         if (Buffer.byteLength(cleaned, 'utf8') > spec.maxLength * MAX_UTF8_BYTES_PER_CHAR) {
             throw new TaskError('invalid_input', `${spec.label}含有太多罕用字或特殊符號，請改用一般文字`, { field: name });
