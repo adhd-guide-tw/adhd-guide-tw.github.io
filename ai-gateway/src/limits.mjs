@@ -248,38 +248,152 @@ function expandIPv6(address) {
     return [...headParts, ...zeros, ...tailParts].map((part) => parseInt(part, 16));
 }
 
+// 帶埠、方括號、zone id 的寫法先剝掉，剝完不是 IP 就回傳 null。只看前 100 個字元。isIP 收任何字元的
+// zone id，含冒號的會被 expandIPv6 當成位址的一組，所以 % 之後全部剝掉
+function parseAddress(address) {
+    let raw = String(address || '').trim().slice(0, 100);
+    const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(raw);
+    if (bracketed) raw = bracketed[1];
+    else if (/^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(raw)) raw = raw.slice(0, raw.lastIndexOf(':'));
+    raw = raw.replace(/%.*$/s, '');
+    const version = isIP(raw);
+    if (version === 4) return { v4: raw };
+    return version === 6 ? { groups: expandIPv6(raw) } : null;
+}
+
+// IPv6 位址裡用戶端的 IPv4（32 位元無號整數）：IPv4 對應位址、6to4（2002::/16）、Teredo（2001:0::/32，
+// 最後 32 位元逐位元反相）。都不是就回傳 null
+function embeddedIPv4(groups) {
+    const join = (hi, lo) => ((hi << 16) | lo) >>> 0;
+    if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) return join(groups[6], groups[7]);
+    if (groups[0] === 0x2002) return join(groups[1], groups[2]);
+    if (groups[0] === 0x2001 && groups[1] === 0) return join(groups[6] ^ 0xffff, groups[7] ^ 0xffff);
+    return null;
+}
+
+const intToIPv4 = (n) => [n >>> 24, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
+
+// IPv6 的前 bits 位元寫成「2001:db8:1:2::/64」：寫到涵蓋 bits 的那一組，後面的位元補 0
+function ipv6Prefix(groups, bits) {
+    const used = Math.ceil(bits / 16);
+    const kept = groups.slice(0, used).map((g, i) => {
+        const left = bits - i * 16;
+        return (left >= 16 ? g : g & (0xffff << (16 - left))).toString(16);
+    });
+    return `${kept.join(':')}${used < 8 ? '::' : ''}/${bits}`;
+}
+
 /**
  * 把用戶端位址正規化成限流用的鍵。
  *   - IPv4 原樣；任何寫法的 IPv4 對應位址（::ffff:a.b.c.d、::ffff:cb00:7105、0:0:0:0:0:ffff:…）還原成 IPv4
- *   - IPv6 取 /64：一個用戶通常握有整段 /64，只看完整位址的話換個位址就繞過限制。
- *     握有 /56、/48 的用戶仍可輪流換用不同的 /64；改取更大的前綴，又會把同一家 ISP
- *     的不同用戶併成一個桶。維持 /64，真正擋住 GPU 被吃光的是 SlotGate
+ *   - IPv6 取前 v6Prefix 位元（預設 /64，AI_V6_PREFIX）：一個用戶通常握有整段 /64，只看完整位址的話
+ *     換個位址就繞過限制。握有 /56、/48 的用戶仍可輪流換用不同的 /64；改取更大的前綴，又會把同一家
+ *     ISP 的不同用戶併成一個桶。預設維持 /64，GPU 不被吃光靠的是 SlotGate
  *   - 6to4（2002::/16）取內嵌的 IPv4：一個 IPv4 位址就握有整段 2002:a.b.c.d::/48，取 /64 的話
  *     可以換出 65536 個桶。Teredo（2001:0::/32）同理，用戶端的 IPv4 是最後 32 位元逐位元反相
  *   - 帶埠、方括號、zone id 的寫法先剝掉；剝完仍不是 IP 就一律歸到 'invalid'
  *     （鍵的長度因此有上限，偽造的怪值也不會各自成為一個桶）
  */
-export function clientKey(address) {
-    let raw = String(address || '').trim().slice(0, 100);
-    const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(raw);
-    if (bracketed) raw = bracketed[1];
-    else if (/^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(raw)) raw = raw.slice(0, raw.lastIndexOf(':'));
-    raw = raw.replace(/%[\w.-]*$/, '');
-    const version = isIP(raw);
-    if (version === 4) return raw;
-    if (version !== 6) return 'invalid';
-    const groups = expandIPv6(raw);
-    if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) {
-        return [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff].join('.');
+export function clientKey(address, v6Prefix = 64) {
+    const ip = parseAddress(address);
+    if (!ip) return 'invalid';
+    if (ip.v4) return ip.v4;
+    const v4 = embeddedIPv4(ip.groups);
+    return v4 === null ? ipv6Prefix(ip.groups, v6Prefix) : intToIPv4(v4);
+}
+
+const ipv6ToBigInt = (groups) => groups.reduce((n, g) => (n << 16n) | BigInt(g), 0n);
+const maskIPv4 = (n, bits) => (bits === 0 ? 0 : (n & (0xffffffff << (32 - bits))) >>> 0);
+const maskIPv6 = (n, bits) => n & (((1n << BigInt(bits)) - 1n) << BigInt(128 - bits));
+
+const MAPPED = 0xffffn << 32n;
+const MAX_IPV6 = (1n << 128n) - 1n;
+
+/**
+ * parseCidr 把「位址」或「位址/前綴長度」解析成 { v6, bits, base, hostBits }，寫錯回傳 null。base 是前綴
+ * 以外清成 0 的位址：IPv4 是 32 位元整數，IPv6 是 BigInt；hostBits 表示寫的位址在前綴之後還有 1。
+ * ::ffff:a.b.c.d/(96+n) 換成 IPv4 的 a.b.c.d/n，跟 clientKey 一樣把它當成 IPv4。不收 zone id、方括號與埠
+ */
+export function parseCidr(text) {
+    const m = /^([0-9A-Fa-f.:]+)(?:\/(\d{1,3}))?$/.exec(String(text).trim());
+    const version = m ? isIP(m[1]) : 0;
+    if (!version) return null;
+    let v6 = version === 6;
+    let bits = m[2] === undefined ? (v6 ? 128 : 32) : Number(m[2]);
+    if (bits > (v6 ? 128 : 32)) return null;
+    let n = v6 ? ipv6ToBigInt(expandIPv6(m[1])) : ipv4ToInt(m[1]);
+    if (v6 && bits >= 96 && n >> 32n === 0xffffn) {
+        [v6, bits, n] = [false, bits - 96, Number(n & 0xffffffffn)];
     }
-    if (groups[0] === 0x2002) {
-        return [groups[1] >> 8, groups[1] & 0xff, groups[2] >> 8, groups[2] & 0xff].join('.');
-    }
-    if (groups[0] === 0x2001 && groups[1] === 0) {
-        const [hi, lo] = [groups[6] ^ 0xffff, groups[7] ^ 0xffff];
-        return [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join('.');
-    }
-    return `${groups.slice(0, 4).map((g) => g.toString(16)).join(':')}::/64`;
+    const base = v6 ? maskIPv6(n, bits) : maskIPv4(n, bits);
+    return { v6, bits, base, hostBits: base !== n };
+}
+
+/** formatCidr 把 parseCidr 的結果寫回「位址/前綴長度」 */
+export function formatCidr({ v6, bits, base }) {
+    if (!v6) return `${intToIPv4(base)}/${bits}`;
+    const groups = Array.from({ length: 8 }, (_, i) => Number((base >> BigInt(112 - i * 16)) & 0xffffn));
+    return ipv6Prefix(groups, bits);
+}
+
+/**
+ * coversAllIPv4 判斷範圍是否涵蓋所有的 IPv4：IPv4 的 /0，或包含 ::ffff:0:0/96 的 IPv6 範圍（::/0、::/80 這類）。
+ * 封鎖清單不收這種範圍，寫錯一個字就會擋掉所有的 IPv4 來源
+ */
+export function coversAllIPv4(range) {
+    if (!range.v6) return range.bits === 0;
+    return range.bits <= 96 && maskIPv6(MAPPED, range.bits) === range.base;
+}
+
+/**
+ * blockRangeProblem 回傳封鎖清單不收這個範圍的原因，收的話回傳 null：all-ipv4（coversAllIPv4）、
+ * too-broad（比 IPv4 /8、IPv6 /16 大）、host-bits（前綴之後還有 1，多半是前綴長度寫錯）
+ */
+export function blockRangeProblem(range) {
+    if (coversAllIPv4(range)) return 'all-ipv4';
+    if (range.bits < (range.v6 ? 16 : 8)) return 'too-broad';
+    return range.hostBits ? 'host-bits' : null;
+}
+
+/**
+ * sourcePrefix 把用戶端位址縮短成 USAGE 記的網段：IPv4（含 clientKey 取出的內嵌 IPv4）取 /24，IPv6 取 /48，
+ * v6Prefix 比 48 短時照它。寫出來的網段要能貼進 AI_BLOCK_SOURCES：會涵蓋所有 IPv4 的（::1 這類位址的
+ * ::/48）每次加長 16 位元，到不涵蓋為止。不是 IP 的回傳 'invalid'
+ */
+export function sourcePrefix(address, v6Prefix = 64) {
+    const ip = parseAddress(address);
+    if (!ip) return 'invalid';
+    const v4 = ip.v4 ? ipv4ToInt(ip.v4) : embeddedIPv4(ip.groups);
+    if (v4 !== null) return `${intToIPv4(maskIPv4(v4, 24))}/24`;
+    const n = ipv6ToBigInt(ip.groups);
+    let bits = Math.min(48, v6Prefix);
+    while (coversAllIPv4({ v6: true, bits, base: maskIPv6(n, bits) })) bits += 16;
+    return ipv6Prefix(ip.groups, bits);
+}
+
+/**
+ * createSourceMatcher 回傳「這個用戶端位址在不在 cidrs 裡」的判斷（AI_BLOCK_SOURCES）。位址照 clientKey
+ * 剝掉埠與 zone id。IPv4 的範圍比對 IPv4 位址，以及 IPv6 位址裡 clientKey 也會取出的用戶端 IPv4（IPv4 對應
+ * 位址、6to4、Teredo）；IPv6 的範圍比對原本的 IPv6 位址。寫錯或 blockRangeProblem 不收的項目丟例外
+ */
+export function createSourceMatcher(cidrs) {
+    // 遮罩先算好，每個請求不必再建 BigInt
+    const ranges = cidrs.map((cidr) => {
+        const range = parseCidr(cidr);
+        if (!range || blockRangeProblem(range)) throw new Error(`不合法的 CIDR：${cidr}`);
+        return { ...range, mask: range.v6 ? maskIPv6(MAX_IPV6, range.bits) : maskIPv4(0xffffffff, range.bits) };
+    });
+    const v4 = ranges.filter((r) => !r.v6);
+    const v6 = ranges.filter((r) => r.v6);
+    return (address) => {
+        const ip = parseAddress(address);
+        if (!ip) return false;
+        const four = ip.v4 ? ipv4ToInt(ip.v4) : embeddedIPv4(ip.groups);
+        if (four !== null && v4.some((r) => ((four & r.mask) >>> 0) === r.base)) return true;
+        if (ip.v4) return false;
+        const six = ipv6ToBigInt(ip.groups);
+        return v6.some((r) => (six & r.mask) === r.base);
+    };
 }
 
 /**

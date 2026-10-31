@@ -57,7 +57,7 @@ const TASKS = createCatalog([
 
 // TASK 一行可以有的欄位。多出來的欄位要先確認它不會帶出使用者的輸入或模型的輸出，再加進來
 const TASK_LOG_KEYS = [
-    'id', 'task', 'client', 'outcome', 'status', 'rounds', 'cont', 'reasoning', 'completion', 'prompt',
+    'id', 'task', 'client', 'outcome', 'status', 'rounds', 'effort', 'cont', 'reasoning', 'completion', 'prompt',
     'queue', 'total', 'stall', 'pending', 'firstByte', 'firstThinking', 'firstDelta', 'retries', 'probes', 'rewrites',
 ];
 
