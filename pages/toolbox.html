@@ -14,9 +14,6 @@
       gtag('config', 'G-XS9ECD3M48');
     </script>
 
-    <!-- Puter.js for Gemini AI -->
-    <script src="https://js.puter.com/v2/"></script>
-
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -85,15 +82,15 @@
                             <span class="text-3xl mr-3">✨</span>
                             AI 陪我寫看診筆記
                         </h4>
-                        <p class="mt-2 text-base">覺得腦袋一團亂，不知從何說起嗎？把所有煩惱都倒在這裡，AI 會像個貼心的助理，幫你整理成一份有條理的筆記，讓你帶去給醫生看。（使用 Gemini 3 Pro 模型）</p>
+                        <p class="mt-2 text-base">覺得腦袋一團亂，不知從何說起嗎？把所有煩惱都倒在這裡，AI 會像個貼心的助理，幫你整理成一份有條理的筆記，讓你帶去給醫生看。（由自架的 AI 服務回答，使用的人多時可能要等一兩分鐘）</p>
 
                         <div class="mt-4">
-                            <textarea id="userInput" rows="8" class="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：工作上常常忘東忘西，老闆交代的事情轉頭就忘。跟另一半常為小事吵架，因為我沒在聽... 睡眠很差，半夜三點還在滑手機..."></textarea>
+                            <textarea id="userInput" rows="8" maxlength="2000" class="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：工作上常常忘東忘西，老闆交代的事情轉頭就忘。跟另一半常為小事吵架，因為我沒在聽... 睡眠很差，半夜三點還在滑手機..."></textarea>
+                            <p class="mt-2 text-sm text-gray-600">請不要寫下姓名、身分證字號、電話、地址這類能認出你的資料。</p>
                         </div>
 
                         <button id="generateButton" class="mt-4 bg-[#D9534F] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
                             <span class="button-text">幫我整理筆記</span>
-                            <div class="loader ml-3 hidden"></div>
                         </button>
 
                         <div id="aiResult" class="mt-6 bg-green-50 p-6 rounded-lg border-l-4 border-green-500 hidden">
@@ -133,6 +130,8 @@
     <script src="../assets/js/components.js"></script>
     <!-- 工具函數 -->
     <script src="../assets/js/utils.js"></script>
+    <!-- AI 閘道客戶端 -->
+    <script src="../assets/js/platform-ai.js"></script>
     <!-- AI 聊天功能 -->
     <script src="../assets/js/ai-chat.js"></script>
     <script>
