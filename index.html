@@ -59,23 +59,24 @@
     <!-- Main Content -->
     <main>
         <!-- Hero Section -->
-        <section class="relative py-20 md:py-32">
+        <section class="relative overflow-x-clip py-20 md:py-32">
             <div class="blob1"></div>
             <div class="blob2"></div>
-            <div class="container mx-auto px-6 grid md:grid-cols-2 gap-10 items-center">
-                <div class="text-center md:text-left">
-                    <h1 class="text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight mb-4 text-[#3D352E] phrase-wrap">
-                        嘿，<br class="hidden md:block">你的大腦&#8203;運作方式<br>
+            <div class="container mx-auto px-6 grid lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-10 items-center">
+                <div class="[container-type:inline-size] text-center lg:text-left">
+                    <!-- 最長一行 10 個字，8cqi 讓它佔文字欄約八成。不認得 cqi 的瀏覽器用 text-4xl。 -->
+                    <h1 class="text-4xl supports-[width:1cqi]:text-[clamp(1.75rem,8cqi,2.5rem)] lg:supports-[width:1cqi]:text-[clamp(1.75rem,8cqi,3.75rem)] font-extrabold leading-tight mb-4 text-[#3D352E] phrase-wrap hero-title">
+                        嘿，<br class="hidden lg:block">你的大腦&#8203;運作方式<br>
                         <span class="hero-gradient-text">有點&#8203;不一樣，&#8203;也很棒。</span>
                     </h1>
-                    <p class="max-w-xl mx-auto md:mx-0 text-lg md:text-xl text-gray-600 mb-8">
+                    <p class="max-w-xl mx-auto lg:mx-0 text-lg md:text-xl text-gray-600 mb-8">
                         我們蒐集了科學的證據與溫暖的故事，打造這個專屬於你的空間。在這裡，你可以放慢腳步，重新認識自己，找到與世界共處的獨特頻率。
                     </p>
                     <a href="#pathways" class="bg-[#D9534F] text-white font-bold py-4 px-10 rounded-full text-lg hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-block">
                         踏出第一步 &rarr;
                     </a>
                 </div>
-                <div class="hidden md:block">
+                <div class="hidden lg:block">
                     <!-- 抽象插畫 -->
                     <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
                       <path fill="#F2E1D9" d="M48.2,-64.9C61.4,-53.9,70.3,-38.4,75.4,-21.8C80.5,-5.2,81.8,12.5,75.3,27.2C68.9,41.9,54.7,53.6,39.6,62.8C24.4,72,8.3,78.7,-6.8,79.5C-22,80.4,-44,75.3,-58.5,63.4C-73,51.5,-79.9,32.7,-79,15.2C-78.1,-2.3,-69.3,-18.5,-59.1,-33.1C-48.9,-47.7,-37.2,-60.8,-23.4,-68.8C-9.5,-76.8,6.5,-79.6,22.1,-76.3C37.7,-73,50.8,-63.9,48.2,-64.9Z" transform="translate(100 100)" />
