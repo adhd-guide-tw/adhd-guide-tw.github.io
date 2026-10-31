@@ -1164,7 +1164,7 @@ test('redact：不是內部位址或 key 的不要誤遮（時間、版本號、
 });
 
 test('redact：LiteLLM 額度錯誤裡的 email 遮掉', () => {
-    assert.equal(redact('Max budget: 10.0 user=student.name+tag@example.edu.tw'), 'Max budget: 10.0 user=<email>');
+    assert.equal(redact('Max budget: 10.0 user=someone.name+tag@example.edu.tw'), 'Max budget: 10.0 user=<email>');
 });
 
 test('SSE：CR 在一塊的結尾、接著一個空塊、LF 在下一塊開頭：仍是同一個 CRLF', async () => {

@@ -328,7 +328,7 @@
     var MAX_ERROR_BODY_CHARS = 16 * 1024;
     // 其他型別是閘道日後可能新增的事件，略過就好，不讓舊頁面因此失敗。
     var KNOWN_EVENTS = ['accepted', 'progress', 'delta', 'done', 'error'];
-    // 閘道回這些代號並給了 retryAfter 時，等待期間不送出。整間學校常共用一個對外 IP，多按的每一次
+    // 閘道回這些代號並給了 retryAfter 時，等待期間不送出。宿舍、公司常共用一個對外 IP，多按的每一次
     // 仍會送到閘道、計入這個 IP 每分鐘的請求數；等待時間多加隨機的幾秒，同時被拒的人才不會同時回來
     var COOLDOWN_CODES = ['busy', 'rate_limited', 'too_many_inflight', 'not_ready'];
     var COOLDOWN_JITTER_MAX_MS = 30 * 1000;
@@ -512,10 +512,10 @@
     }
 
     // 開始串流之前的拒絕：閘道回 JSON {"error": {code, message, retryable?, retryAfter?, field?}}。
-    // 只有帶著閘道的 X-Request-Id 時才採信裡面的訊息。跨網域時，沒有 CORS 標頭的回應（閘道沒開時
-    // 通道回的 502、閘道自己的 403 與 404）瀏覽器根本不交給頁面，走的是 fetch 失敗的 network；
-    // 會走到這裡的，是補了 CORS 標頭的代理或同網域部署時的錯誤頁，內容可能是任何東西，一律
-    // 當作暫時無法使用，不把陌生的文字秀給使用者。
+    // 只有帶著閘道的 X-Request-Id 時才採信裡面的訊息：閘道拒絕任務請求時帶 X-Request-Id，網站在允許名單內
+    // 就帶 CORS 標頭。跨網域時，沒有 CORS 標頭的回應（閘道沒開時通道回的 502、路徑不對的 404）瀏覽器不交給
+    // 頁面，走的是 fetch 失敗的 network。沒有 X-Request-Id 的，是補了 CORS 標頭的代理或同網域部署時的
+    // 錯誤頁，內容可能是任何東西，一律當作暫時無法使用，不把陌生的文字秀給使用者。
     async function responseError(response, requestId) {
         var info = {};
         if (requestId) {
