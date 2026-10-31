@@ -26,6 +26,21 @@ body {
    3. 排版系統 (Prose)
    ======================================== */
 
+/* keep-all 讓中文字之間不斷行，斷點用 &#8203; 標在標題裡。Safari 26 以前不在中文標點後斷，標點後也要標。
+   不用 <wbr>：它把標題拆成多個文字節點，字型替換時 Chrome 算出的版面位移會變大。 */
+.phrase-wrap {
+    word-break: keep-all;
+    overflow-wrap: break-word; /* Safari 15.3 以前不認得 anywhere */
+    overflow-wrap: anywhere;
+}
+
+/* 螢幕太窄或字放大時片語塞不進一行，改回逐字斷行，標點才不會被擠到行首。 */
+@media (max-width: 20em) {
+    .phrase-wrap {
+        word-break: normal;
+    }
+}
+
 .prose-custom {
     font-size: 1.125rem;
     line-height: 1.75;
