@@ -129,3 +129,11 @@ test('病名、科別與台灣有許可證的藥名和網站寫法一致', () =>
     assert.match(faq.instructions, /AADPA）2022 年/);
     for (const task of catalog.values()) assert.doesNotMatch(task.instructions, /到身心科|atomoxetine（思銳）/, task.id);
 });
+
+// 健保藥品給付規定 1.3.5 以 19 歲為界；模型不知道時會把長效藥寫成成人新診斷也能給付。
+test('adhd-faq：健保給付照 1.3.5 的年齡條件回答', () => {
+    const { instructions } = catalog.get('adhd-faq');
+    assert.match(instructions, /19 歲以上、未滿 41 歲才第一次診斷的，長效 methylphenidate 不給付/);
+    assert.match(instructions, /6 到 18 歲時已經用這類藥治療半年以上/);
+    assert.match(instructions, /短效 methylphenidate 錠劑（10 毫克與 20 毫克）健保有給付/);
+});
