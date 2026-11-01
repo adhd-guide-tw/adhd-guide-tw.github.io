@@ -16,13 +16,13 @@ ADHD 光譜網站上的三個 AI 表單都呼叫這個服務。它拿著 key，�
 
 三個任務共用的規則在 `src/tasks.mjs` 的 `SYSTEM_PROMPT`，各任務的指令在 `src/task-catalog.mjs`。改之前先看依據，資料查證於 2026-11-01。
 
-危機處理。模型只看得到一則訊息，沒辦法追問，所以一出現風險訊號，就在同一則回答附上求助方式，不讓模型自己判斷輕重：聊天機器人對中等風險的判斷並不穩定（[Psychiatric Services 2025](https://pmc.ncbi.nlm.nih.gov/articles/PMC12856735)）。諮詢專線只列 [1925](https://mohw.gov.tw/cp-16-50587-1.html)，它是唯一確認 24 小時服務的。不描述方法與致命程度，依據是 [WHO 的自殺報導指引](https://www.who.int/publications/i/item/9789240076846)與[衛福部對自殺防治法第 16 條的說明](https://www.mohw.gov.tw/dl-99285-84cb7ce4-c0e7-4d6c-b88f-a8bf7b196a85.html)。
+危機處理。模型只看得到一則訊息，沒辦法追問，所以一出現風險訊號，就在同一則回答附上求助方式，不讓模型自己判斷輕重：聊天機器人對中等風險的判斷並不穩定（[Psychiatric Services 2025](https://pmc.ncbi.nlm.nih.gov/articles/PMC12856735)）。諮詢專線和頁面一樣只列 [1925](https://mohw.gov.tw/cp-16-50587-1.html)。不描述方法與致命程度，依據是 [WHO 的自殺報導指引](https://www.who.int/publications/i/item/9789240076846)與[衛福部對自殺防治法第 16 條的說明](https://www.mohw.gov.tw/dl-99285-84cb7ce4-c0e7-4d6c-b88f-a8bf7b196a85.html)。
 
-用藥。methylphenidate 在台灣是[第三級管制藥品](https://mohw.gov.tw/cp-16-26925-1.html)，被濫用的興奮劑多半來自家人朋友（[FDA 2023](https://www.fda.gov/drugs/drug-safety-communications/fda-updating-warnings-improve-safe-use-prescription-stimulants-used-treat-adhd-and-other-conditions)），所以不給劑量建議，也不協助分享。台灣的用藥只列 methylphenidate 類與 atomoxetine，其他藥物查不到台灣的許可證。
+用藥。methylphenidate 在台灣是[第三級管制藥品](https://mohw.gov.tw/cp-16-26925-1.html)，被濫用的興奮劑多半來自家人朋友（[FDA 2023](https://www.fda.gov/drugs/drug-safety-communications/fda-updating-warnings-improve-safe-use-prescription-stimulants-used-treat-adhd-and-other-conditions)），所以不給劑量建議，也不協助分享。台灣有 ADHD 適應症許可證的只有 methylphenidate 與 atomoxetine（思銳已註銷）。
 
 不診斷，也不附和。[醫師法第 28 條](https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=L0020001&flno=28)規定非醫師不得執行醫療業務。模型遇到前提錯誤的用藥問題常照單全收（[npj Digital Medicine 2025](https://www.massgeneralbrigham.org/en/about/newsroom/press-releases/large-language-models-prioritize-helpfulness-over-accuracy-in-medical-contexts)），[APA 2025 的健康警示](https://www.apa.org/topics/artificial-intelligence-machine-learning/health-advisory-chatbots-wellness-apps)也把一味附和列為主要風險。
 
-常見問答。內容對齊 [NICE NG87](https://www.nice.org.uk/guidance/ng87)、[AAP 2019](https://publications.aap.org/pediatrics/article/144/4/e20192528/81590/)、[CADDRA 4.1](https://www.caddra.ca/canadian-adhd-practice-guidelines/) 與 [2021 年世界 ADHD 聯盟的國際共識聲明](https://escholarship.org/content/qt2rv182tf/qt2rv182tf.pdf)。身高、心血管、神經回饋、飲食與運動的證據還不一致，要直說。
+常見問答。內容對齊 [NICE NG87](https://www.nice.org.uk/guidance/ng87)、[AAP 2019](https://doi.org/10.1542/peds.2019-2528)、[CADDRA 4.1](https://www.caddra.ca/canadian-adhd-practice-guidelines/)、[AADPA 2022](https://adhdguideline.aadpa.com.au/) 與 [2021 年世界 ADHD 聯盟的國際共識聲明](https://doi.org/10.1016/j.neubiorev.2021.01.022)。身高、心血管、神經回饋、飲食與運動的證據還不一致，要直說。
 
 拆解任務。卡住的通常是開始，不是不知道該做什麼，所以第一步要小到馬上能做（[Ramsay](https://psychwire.com/free-resources/q-and-a/15i4yzk/cbt-for-adult-adhd-from-intention-to-action)）。延遲的獎勵效果較差（[統合分析](https://pubmed.ncbi.nlm.nih.gov/27722208/)），獎勵放在做完當下。番茄鐘沒有 ADHD 的試驗，只有[一般學生的研究](https://pubmed.ncbi.nlm.nih.gov/36859717/)，計時長度交給使用者選。
 
