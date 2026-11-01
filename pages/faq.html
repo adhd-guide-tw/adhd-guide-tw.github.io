@@ -135,21 +135,18 @@
             </section>
 
             <section id="ai-ask" class="mt-16">
-                 <h2 class="phrase-wrap">找不到&#8203;你的問題嗎？</h2>
+                 <h2 class="phrase-wrap">用 <span class="nobr">AI 回答</span>&#8203;其他問題</h2>
                  <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border-t-4 border-[#A44A3F]">
-                     <h3 class="mt-0 text-2xl font-bold flex items-center">
-                         <span class="text-3xl mr-3">✨</span>
-                         問問 AI 助理
-                     </h3>
-                     <p class="mt-2 text-base text-gray-600">你可以直接在這裡輸入你的問題。AI 助理會根據現有的科學知識，提供一個溫暖且具參考性的回答。（由自架的 AI 服務回答，使用的人多時可能要等一兩分鐘）</p>
+                     <p class="mt-0 text-base text-gray-600">一次問一個問題，AI 不會記得前一次問的內容。由自架的 AI 服務回答，使用的人多時可能要等一兩分鐘。</p>
 
                      <div class="mt-6">
-                         <textarea id="userInput" rows="4" maxlength="500" class="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：ADHD 跟睡眠的關係是什麼？或者，藥物會如何影響我的情緒？"></textarea>
+                         <label for="userInput" class="block font-semibold mb-2">你的問題</label>
+                         <textarea id="userInput" rows="4" maxlength="500" class="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：ADHD 和睡眠有什麼關係？"></textarea>
                          <p class="mt-2 text-sm text-gray-600">請不要寫下姓名、身分證字號、電話、地址這類能認出你的資料。</p>
                      </div>
 
-                     <button id="generateButton" class="mt-4 bg-[#D9534F] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
-                         <span class="button-text">送出提問</span>
+                     <button id="generateButton" class="mt-4 bg-[#BF4040] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
+                         <span class="button-text">送出問題</span>
                      </button>
 
                      <div id="aiResult" class="mt-6 hidden">
@@ -157,6 +154,7 @@
                          </div>
                      </div>
                      <div id="errorMessage" class="mt-6 bg-red-50 p-4 rounded-lg text-red-700 hidden"></div>
+                     <p id="aiNotice" class="mt-6 text-sm text-gray-600">回答由 AI 產生，可能有錯，不能取代醫師的診斷。要調整藥物，先問開藥的醫師。有生命危險請撥 119。1925 安心專線：心理諮詢，24 小時，免付費。</p>
                  </div>
             </section>
         </article>
@@ -183,8 +181,8 @@
                 resultContainerSelector: '#aiResult',
                 errorSelector: '#errorMessage',
                 promptType: 'faq',
-                buttonText: '送出提問',
-                loadingText: '思考中...'
+                buttonText: '送出問題',
+                loadingText: '回答中'
             });
         });
     </script>

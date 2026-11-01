@@ -95,11 +95,14 @@ test('maxOutputChars 是指令寫的字數上限的 4 倍，看診筆記以輸�
     assert.throws(() => finalizeOutput(catalog.get('adhd-task-slicer'), '字'.repeat(1601)), { code: 'too_long' });
 });
 
-// 頁面不另外顯示免責聲明，只靠模型附上。
-test('adhd-faq：指令要求在結尾用分隔線隔開，附上含 119 與 1925 的免責聲明', () => {
-    const { instructions } = catalog.get('adhd-faq');
-    assert.match(instructions, /單獨一行的 --- 隔開/);
-    assert.match(instructions, /\*\*請注意：\*\* 這是 AI 產生的衛教資訊，[^\n]*撥 119，或撥 1925 安心專線（24 小時）。/);
+// 免責聲明由頁面固定顯示：答案沒寫完、斷線或模型漏寫時都還在，也不會在答案結尾重複一次。
+test('每一頁的 AI 區塊都固定顯示「可能有錯」與 119、1925；指令不再要模型附聲明', () => {
+    for (const [page] of PAGES) {
+        const notice = /<p id="aiNotice"[^>]*>([^<]*)<\/p>/.exec(readRepoFile(page))?.[1] ?? '';
+        assert.match(notice, /由 AI [^。]*可能有錯[，。].*撥 119。1925 安心專線：心理諮詢，24 小時，免付費。$/, page);
+    }
+    assert.match(readRepoFile('pages/faq.html'), /可能有錯，不能取代醫師的診斷。要調整藥物，先問開藥的醫師。/);
+    for (const task of catalog.values()) assert.doesNotMatch(task.instructions, /請注意|免責|---/, task.id);
 });
 
 // 三個任務共用 SYSTEM_PROMPT，刪掉其中一條，每個任務都會少一道防線。

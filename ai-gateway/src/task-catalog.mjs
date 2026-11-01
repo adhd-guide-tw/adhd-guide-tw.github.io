@@ -10,7 +10,7 @@
  */
 export const TASK_DEFINITIONS = [
     {
-        // 常見問答（pages/faq.html）的「問問 AI 助理」。免責聲明由模型附在結尾，ai-chat.js 把 --- 畫成分隔線。
+        // 常見問答（pages/faq.html）的「用 AI 回答其他問題」。免責聲明與 119、1925 由頁面固定顯示，不由模型附上。
         id: 'adhd-faq',
         input: {
             question: { label: '問題', maxLength: 500 },
@@ -25,14 +25,11 @@ export const TASK_DEFINITIONS = [
             '',
             '第一段用一兩句話直接回答。接著用 3 到 5 個「- 」項目補充重點，每項一兩句。需要的話，最後用一句話建議下一步，例如看診時可以問醫師什麼。全文大約 300 到 600 字。',
             '問題和 ADHD、注意力、情緒或身心健康都無關時，只用一句話說明這裡只回答 ADHD 相關的問題。',
-            '',
-            '回答的最後，一定要用單獨一行的 --- 隔開，再一字不改地附上這段話：',
-            '**請注意：** 這是 AI 產生的衛教資訊，可能有錯，不能取代醫師的診斷，也請不要自行調整藥物。若你正處於危險中，請撥 119，或撥 1925 安心專線（24 小時）。',
         ].join('\n'),
         output: { type: 'markdown' },
     },
     {
-        // 生活策略（pages/strategies.html）的「AI 陪我拆解任務」。
+        // 生活策略（pages/strategies.html）的「用 AI 拆解任務」。
         id: 'adhd-task-slicer',
         input: {
             task: { label: '任務', maxLength: 200 },
@@ -55,7 +52,7 @@ export const TASK_DEFINITIONS = [
         output: { type: 'markdown' },
     },
     {
-        // 資源工具箱（pages/toolbox.html）的「AI 陪我寫看診筆記」。只整理不推論，思考用 medium 就夠：
+        // 資源工具箱（pages/toolbox.html）的「用 AI 整理看診筆記」。只整理不推論，思考用 medium 就夠：
         // 2026-11-01 同一段筆記實測，xhigh 思考 6120 tokens、147 秒，medium 2230 tokens、60 秒，整理結果相同。
         id: 'adhd-visit-notes',
         reasoningEffort: 'medium',
