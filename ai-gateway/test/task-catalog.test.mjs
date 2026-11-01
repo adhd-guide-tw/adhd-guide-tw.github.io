@@ -110,8 +110,22 @@ test('每個任務的 system 訊息都有危機處理、用藥與格式的規則
     for (const task of catalog.values()) {
         const [system] = buildMessages(task, validateInput(task, { [Object.keys(task.input)[0]]: '測試' }));
         assert.match(system.content, /請立刻撥 119/, task.id);
-        assert.match(system.content, /1925 安心專線（24 小時、免費）/, task.id);
+        assert.match(system.content, /「1925 安心專線：心理諮詢，24 小時，免付費」/, task.id);
+        assert.doesNotMatch(system.content, /免費/, task.id);
         assert.match(system.content, /第三級管制藥品/, task.id);
         assert.match(system.content, /網頁不認得 # 標題/, task.id);
     }
+});
+
+// 病名、科別與商品名的寫法和網站頁面相同；藥只列台灣有 ADHD 適應症許可證的 methylphenidate 與 atomoxetine。
+test('病名、科別與台灣有許可證的藥名和網站寫法一致', () => {
+    const faq = catalog.get('adhd-faq');
+    const [system] = buildMessages(faq, validateInput(faq, { question: '測試' }));
+    assert.match(system.content, /第一次寫「注意力不足過動症（ADHD）」/);
+    assert.match(system.content, /成人寫「精神科」，孩子與青少年寫「兒童青少年精神科」/);
+    assert.match(system.content, /「患者」只用在描述研究的受試者或就醫情境/);
+    assert.match(faq.instructions, /methylphenidate（台灣商品名：利他能 Ritalin、利長能 Ritalin LA、專思達 Concerta、思有得 Methydur 等）/);
+    assert.match(faq.instructions, /atomoxetine（台灣商品名：安保思定 Apo-Atomoxetine、思敏 Mixre、安妥 Atotine、思必靜 Xeirda、思專定 Atotine 等）/);
+    assert.match(faq.instructions, /AADPA）2022 年/);
+    for (const task of catalog.values()) assert.doesNotMatch(task.instructions, /到身心科|atomoxetine（思銳）/, task.id);
 });
