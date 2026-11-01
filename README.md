@@ -32,10 +32,10 @@
 
 我們不只是一個資訊網站，更是一個經過精心設計的體驗。
 
-  * **🧠 核心知識體系：** 從「我是誰」（[`about-adhd.html`](./about-adhd.html)）、「我該怎麼辦」（[`holistic-approach.html`](./holistic-approach.html)）到「我們如何共處」（[`for-supporters.html`](./for-supporters.html)），建構一條清晰的探索路徑。
-  * **🔬 深度研究剖析：** 將您提供的每一份關鍵研究，都製作成獨立的深度文章頁面 (如 [`article-suicide-risk.html`](./article-suicide-risk.html), [`article-creativity.html`](./article-creativity.html) 等)，讓使用者能深入了解每個議題背後的科學證據。
-  * **🤖 AI 賦能互動：** 「常見問答」（[`faq.html`](./pages/faq.html)）、「生活策略」（[`strategies.html`](./pages/strategies.html)）與「資源工具箱」（[`toolbox.html`](./pages/toolbox.html)）各有一個 AI 表單，分別回答問題、陪你拆解任務、把雜亂的想法整理成看診筆記。AI 由自架的閘道代為呼叫模型，見 [`ai-gateway/`](./ai-gateway/README.md)。
-  * **🧰 實用工具箱：** 提供「生活策略」([`strategies.html`](./strategies.html))、「評估量表介紹」([`scales-explained.html`](./scales-explained.html)) 與「ADHD 詞彙表」([`glossary.html`](./glossary.html))，將知識轉化為可應用的工具。
+  * **🧠 核心知識體系：** 從「我是誰」（[`about-adhd.html`](./pages/about-adhd.html)）、「我該怎麼辦」（[`holistic-approach.html`](./pages/holistic-approach.html)）到「我們如何共處」（[`for-supporters.html`](./pages/for-supporters.html)），建構一條清晰的探索路徑。
+  * **🔬 深度研究剖析：** 每一份關鍵研究都製作成獨立的文章頁面（[`pages/articles/`](./pages/articles/)），讓使用者能深入了解每個議題背後的科學證據。
+  * **🤖 AI 賦能互動：** 「常見問答」（[`faq.html`](./pages/faq.html)）、「生活策略」（[`strategies.html`](./pages/strategies.html)）與「資源工具箱」（[`toolbox.html`](./pages/toolbox.html)）各有一個 AI 表單，分別回答問題、拆解任務、把雜亂的想法整理成看診筆記。AI 由自架的閘道代為呼叫模型，見 [`ai-gateway/`](./ai-gateway/README.md)。
+  * **🧰 實用工具箱：** 提供「生活策略」([`strategies.html`](./pages/strategies.html))、「量表說明」([`scales-explained.html`](./pages/scales-explained.html)) 與「ADHD 詞彙表」([`glossary.html`](./pages/glossary.html))，將知識轉化為可應用的工具。
   * **🎨 ADHD 友善設計：** 整體網站採用溫暖、有機的設計風格，使用柔和的米白背景、高對比的深棕色文字，並透過卡片式佈局與清晰的導覽，致力於降低使用者的認知負荷，提供無壓力的瀏覽體驗。
 
 ## 🗺️ 網站結構總覽
@@ -45,21 +45,21 @@
 | 檔案名稱                        | 頁面主題                                       |
 | ------------------------------- | ---------------------------------------------- |
 | `index.html`                    | **首頁** - 網站入口與內容導覽                  |
-| `about-adhd.html`               | **關於 ADHD** - 核心知識與概念介紹             |
-| `medication-guide.html`         | 深入了解利他能/專思達 (藥物指南)               |
-| `holistic-approach.html`        | 全方位療癒 (非藥物治療)                        |
-| `strategies.html`               | 與ADHD共處的生活策略                           |
-| `for-supporters.html`           | 給支持者的指南                                 |
-| `research.html`                 | **研究新知** - 所有深度研究文章的入口          |
-| `article-*.html`                | (共13篇) 針對特定研究報告的深度解讀文章        |
+| `about-adhd.html`               | **認識 ADHD** - 核心知識與概念介紹             |
+| `medication-guide.html`         | ADHD 的藥物治療                                |
+| `holistic-approach.html`        | ADHD 的非藥物治療                              |
+| `strategies.html`               | 生活策略                                       |
+| `for-supporters.html`           | 家人、伴侶、老師與朋友可以做什麼               |
+| `research.html`                 | **研究文章** - 所有深度研究文章的入口          |
+| `article-*.html`                | (共12篇) 針對特定研究報告的深度解讀文章        |
 | `faq.html`                      | 常見問題 (含 AI 問答)                          |
 | `glossary.html`                 | ADHD 詞彙表 (深度版)                           |
-| `scales-explained.html`         | 認識專業評估量表                               |
+| `scales-explained.html`         | 量表說明                                       |
 | `about.html`                    | **關於我們** - 網站緣起與使命                  |
 | `contact.html`                  | 聯絡我們                                       |
 | `sitemap.html`                  | 網站地圖                                       |
-| `adhd-inner-world.html`         | 感受 ADHD 的內心世界 (早期版本)                |
-| `toolbox.html`                  | 資源工具箱 (早期版本)                          |
+| `adhd-inner-world.html`         | ADHD 的生活經驗                                |
+| `toolbox.html`                  | 工具箱                                         |
 
 ## 🛠️ 技術棧
 
@@ -76,7 +76,7 @@
 
 我們歡迎任何形式的貢獻，讓這個社群變得更好！
 
-1.  **內容建議與勘誤**：如果您發現任何資訊錯誤、過時，或有希望我們探討的新主題，歡迎透過網站的「[聯絡我們](./contact.html)」頁面，或直接在 GitHub 上開立一個 [Issue](https://github.com/adhd-guide-tw/adhd-guide-tw.github.io/issues)。
+1.  **內容建議與勘誤**：如果您發現任何資訊錯誤、過時，或有希望我們探討的新主題，歡迎透過網站的「[聯絡我們](./pages/contact.html)」頁面，或直接在 GitHub 上開立一個 [Issue](https://github.com/adhd-guide-tw/adhd-guide-tw.github.io/issues)。
 2.  **分享你的故事**：你的生命經驗是這個光譜中最寶貴的色彩，歡迎來信與我們分享。
 
 ## 📜 授權條款
