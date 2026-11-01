@@ -136,4 +136,5 @@ test('adhd-faq：健保給付照 1.3.5 的年齡條件回答', () => {
     assert.match(instructions, /19 歲以上、未滿 41 歲才第一次診斷的，長效 methylphenidate 不給付/);
     assert.match(instructions, /6 到 18 歲時已經用這類藥治療半年以上/);
     assert.match(instructions, /短效 methylphenidate 錠劑（10 毫克與 20 毫克）健保有給付/);
+    assert.match(instructions, /思專定是口服液，只給付 6 到 18 歲/);
 });
