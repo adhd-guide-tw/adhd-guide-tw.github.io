@@ -28,7 +28,7 @@ const Utils = {
             // 顯示成功回饋
             if (button) {
                 const originalText = button.textContent;
-                button.textContent = '已複製！';
+                button.textContent = '已複製';
                 setTimeout(() => {
                     button.textContent = originalText;
                 }, 2000);

@@ -78,27 +78,26 @@
                     </ul>
 
                     <div class="mt-8 border-t-2 border-dashed border-gray-200 pt-8" id="ai-note-generator">
-                        <h4 class="text-xl font-bold text-[#A44A3F] flex items-center">
-                            <span class="text-3xl mr-3">✨</span>
-                            AI 陪我寫看診筆記
-                        </h4>
-                        <p class="mt-2 text-base">覺得腦袋一團亂，不知從何說起嗎？把所有煩惱都倒在這裡，AI 會像個貼心的助理，幫你整理成一份有條理的筆記，讓你帶去給醫生看。（由自架的 AI 服務回答，使用的人多時可能要等一兩分鐘）</p>
+                        <h4 class="text-xl font-bold text-[#A44A3F]">用 AI 整理看診筆記</h4>
+                        <p class="mt-2 text-base">把想跟醫師說的事寫下來，不用管順序。AI 會分段整理，不做診斷；最後列出醫師常問、筆記裡沒寫到的事。由自架的 AI 服務處理，使用的人多時可能要等一兩分鐘。</p>
 
                         <div class="mt-4">
-                            <textarea id="userInput" rows="8" maxlength="2000" class="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：工作上常常忘東忘西，老闆交代的事情轉頭就忘。跟另一半常為小事吵架，因為我沒在聽... 睡眠很差，半夜三點還在滑手機..."></textarea>
+                            <label for="userInput" class="block font-semibold mb-2">想跟醫師說的事</label>
+                            <textarea id="userInput" rows="8" maxlength="2000" class="w-full p-4 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：工作上常常忘東忘西，主管交代的事轉頭就忘。跟另一半常為小事吵架，因為我沒在聽。睡不好，半夜 3 點還在滑手機。"></textarea>
                             <p class="mt-2 text-sm text-gray-600">請不要寫下姓名、身分證字號、電話、地址這類能認出你的資料。</p>
                         </div>
 
-                        <button id="generateButton" class="mt-4 bg-[#D9534F] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
-                            <span class="button-text">幫我整理筆記</span>
+                        <button id="generateButton" class="mt-4 bg-[#BF4040] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
+                            <span class="button-text">整理筆記</span>
                         </button>
 
                         <div id="aiResult" class="mt-6 bg-green-50 p-6 rounded-lg border-l-4 border-green-500 hidden">
-                            <h4 class="font-bold text-lg text-green-800">這是為你整理好的看診筆記：</h4>
+                            <p class="font-bold text-lg text-green-800">整理好的看診筆記</p>
                             <div id="resultContent" class="mt-2 text-gray-700 whitespace-pre-wrap"></div>
                             <button id="copyButton" class="mt-4 text-sm bg-gray-200 text-gray-700 py-1 px-3 rounded-md hover:bg-gray-300">複製內容</button>
                         </div>
                          <div id="errorMessage" class="mt-6 bg-red-50 p-4 rounded-lg text-red-700 hidden"></div>
+                        <p id="aiNotice" class="mt-6 text-sm text-gray-600">筆記由 AI 整理，可能有錯。有生命危險請撥 119。1925 安心專線：心理諮詢，24 小時，免付費。</p>
                     </div>
                 </li>
             </ul>
@@ -144,8 +143,8 @@
                 resultContainerSelector: '#aiResult',
                 errorSelector: '#errorMessage',
                 promptType: 'noteGenerator',
-                buttonText: '幫我整理筆記',
-                loadingText: '整理中...'
+                buttonText: '整理筆記',
+                loadingText: '整理中'
             });
 
             // 複製功能

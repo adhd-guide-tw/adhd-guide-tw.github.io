@@ -43,20 +43,17 @@
 
             <section id="ai-task-slicer" class="my-16">
                  <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border-t-4 border-[#A44A3F]">
-                     <h2 class="mt-0 text-3xl font-bold flex items-center">
-                         <span class="text-4xl mr-3">✨</span>
-                         AI 陪我拆解任務
-                     </h2>
-                     <p class="mt-2 text-base">覺得任務大到像座山，完全不知從何爬起嗎？把那座「山」的名字寫下來，AI 教練會陪你把它變成一堆可以輕鬆撿起的小石頭。（由自架的 AI 服務回答，使用的人多時可能要等一兩分鐘）</p>
+                     <h2 class="mt-0 text-3xl font-bold">用 AI 拆解任務</h2>
+                     <p class="mt-2 text-base">寫下一件不知道從哪裡開始的事，AI 會拆成現在就能做的第一步和接下來的幾個步驟。由自架的 AI 服務處理，使用的人多時可能要等一兩分鐘。</p>
 
                      <div class="mt-6">
-                         <label for="taskInput" class="block font-semibold mb-2">寫下讓你不知所措的任務：</label>
-                         <input type="text" id="taskInput" maxlength="200" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：「寫一份五千字的期末報告」或「把亂成一團的房間整理好」">
+                         <label for="taskInput" class="block font-semibold mb-2">要拆解的任務</label>
+                         <input type="text" id="taskInput" maxlength="200" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#6D9886] focus:border-[#6D9886] transition-colors" placeholder="例如：寫期末報告">
                          <p class="mt-2 text-sm text-gray-600">請不要寫下姓名、身分證字號、電話、地址這類能認出你的資料。</p>
                      </div>
 
-                     <button id="generateButton" class="mt-4 bg-[#D9534F] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
-                         <span class="button-text">幫我制定策略</span>
+                     <button id="generateButton" class="mt-4 bg-[#BF4040] text-white font-bold py-3 px-6 rounded-full hover:bg-[#A44A3F] transition-all transform hover:scale-105 inline-flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed">
+                         <span class="button-text">拆解任務</span>
                      </button>
 
                      <div id="aiResult" class="mt-6 hidden">
@@ -64,6 +61,7 @@
                              </div>
                      </div>
                      <div id="errorMessage" class="mt-6 bg-red-50 p-4 rounded-lg text-red-700 hidden"></div>
+                     <p id="aiNotice" class="mt-6 text-sm text-gray-600">回答由 AI 產生，可能有錯。有生命危險請撥 119。1925 安心專線：心理諮詢，24 小時，免付費。</p>
                  </div>
             </section>
 
@@ -160,8 +158,8 @@
                 resultContainerSelector: '#aiResult',
                 errorSelector: '#errorMessage',
                 promptType: 'taskSlicer',
-                buttonText: '幫我制定策略',
-                loadingText: '思考中...'
+                buttonText: '拆解任務',
+                loadingText: '拆解中'
             });
         });
     </script>
