@@ -288,20 +288,50 @@ body {
     box-shadow: 0 4px 15px rgba(0,0,0,0.06);
 }
 
+.faq-item .faq-heading {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: inherit;
+}
+
 .faq-question {
     cursor: pointer;
     padding: 1.25rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    width: 100%;
+    text-align: left;
     font-weight: 700;
     font-size: 1.125rem;
+    margin: 0;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    line-height: inherit;
+    color: inherit;
 }
 
+/* 收合時也要藏起來，不然內容仍會被讀到、裡面的連結仍能用 Tab 跳進去；visibility 等高度收完才切換 */
 .faq-answer {
     max-height: 0;
     overflow: hidden;
+    visibility: hidden;
+    transition: max-height 0.4s ease-in-out, visibility 0s 0.4s;
+}
+
+.faq-answer.is-open {
+    visibility: visible;
     transition: max-height 0.4s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .faq-answer,
+    .faq-answer.is-open,
+    .faq-question svg {
+        transition: none;
+    }
 }
 
 .faq-answer-content {
