@@ -59,7 +59,7 @@ const SiteComponents = {
                     <a href="${prefix}pages/medication-guide.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors whitespace-nowrap">藥物治療</a>
                     <a href="${prefix}pages/holistic-approach.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors whitespace-nowrap">非藥物治療</a>
                     <a href="${prefix}pages/strategies.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors whitespace-nowrap">生活策略</a>
-                    <a href="${prefix}pages/research.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors whitespace-nowrap">研究文章</a>
+                    <a href="${prefix}pages/research.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors whitespace-nowrap">研究新知</a>
                 </nav>
                 <a href="${prefix}pages/contact.html" class="bg-[#3D352E] text-white font-bold py-2 px-5 rounded-full hover:bg-[#A44A3F] transition-colors whitespace-nowrap">
                     聯絡我們
@@ -109,7 +109,7 @@ const SiteComponents = {
                     <div>
                         <h4 class="text-lg font-bold mb-4">深度資源</h4>
                         <ul class="space-y-2">
-                            <li><a href="${prefix}pages/research.html" class="text-gray-300 hover:text-white transition-colors">研究文章</a></li>
+                            <li><a href="${prefix}pages/research.html" class="text-gray-300 hover:text-white transition-colors">研究新知</a></li>
                             <li><a href="${prefix}pages/glossary.html" class="text-gray-300 hover:text-white transition-colors">詞彙表</a></li>
                             <li><a href="${prefix}pages/scales-explained.html" class="text-gray-300 hover:text-white transition-colors">量表說明</a></li>
                             <li><a href="${prefix}pages/toolbox.html" class="text-gray-300 hover:text-white transition-colors">工具箱</a></li>
