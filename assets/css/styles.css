@@ -10,6 +10,8 @@ body {
     font-family: 'Manrope', 'Noto Sans TC', sans-serif;
     background-color: #FEFDF8;
     color: #3D352E;
+    overflow-wrap: break-word; /* Safari 15.3 以前不認得 anywhere */
+    overflow-wrap: anywhere;
 }
 
 /* Tailwind 的 container 在 lg、xl 等於斷點寬，視窗 1024、1280px 時內容只離邊緣 24px。
@@ -94,14 +96,27 @@ body {
 }
 
 .prose-custom a {
-    color: #6D9886;
+    color: #4A6B5B;
     text-decoration: underline;
     text-decoration-thickness: 1px;
     text-underline-offset: 4px;
 }
 
 .prose-custom a:hover {
-    color: #4A6B5B;
+    color: #3D352E;
+}
+
+/* 放在內文裡、但本身是按鈕或卡片的連結，不套內文連結的顏色與底線 */
+.prose-custom a.contact-button,
+.prose-custom a.contact-button:hover {
+    color: #FFFFFF;
+    text-decoration: none;
+}
+
+.prose-custom a.article-card,
+.prose-custom a.article-card:hover {
+    color: inherit;
+    text-decoration: none;
 }
 
 .prose-custom blockquote {
@@ -192,10 +207,17 @@ body {
     flex-direction: column;
 }
 
+.strategy-card h3,
 .strategy-card h4 {
     font-size: 1.25rem;
     font-weight: 700;
     color: #6D9886;
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+}
+
+.feature-card h3 {
+    font-size: 1.25rem;
     margin-top: 0;
     margin-bottom: 0.5rem;
 }
@@ -268,20 +290,50 @@ body {
     box-shadow: 0 4px 15px rgba(0,0,0,0.06);
 }
 
+.faq-item .faq-heading {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: inherit;
+}
+
 .faq-question {
     cursor: pointer;
     padding: 1.25rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    width: 100%;
+    text-align: left;
     font-weight: 700;
     font-size: 1.125rem;
+    margin: 0;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    line-height: inherit;
+    color: inherit;
 }
 
+/* 收合時也要藏起來，不然內容仍會被讀到、裡面的連結仍能用 Tab 跳進去；visibility 等高度收完才切換 */
 .faq-answer {
     max-height: 0;
     overflow: hidden;
+    visibility: hidden;
+    transition: max-height 0.4s ease-in-out, visibility 0s 0.4s;
+}
+
+.faq-answer.is-open {
+    visibility: visible;
     transition: max-height 0.4s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .faq-answer,
+    .faq-answer.is-open,
+    .faq-question svg {
+        transition: none;
+    }
 }
 
 .faq-answer-content {
@@ -489,6 +541,39 @@ body {
     transform: rotate(180deg);
 }
 
+/* 內文的引用標號與頁尾的參考資料。Tailwind 的 preflight 會清掉 ol 的編號，這裡補回來 */
+.cite a {
+    text-underline-offset: 2px;
+}
+
+.page-sources {
+    margin-top: 4rem;
+    font-size: 0.95rem;
+    line-height: 1.7;
+}
+
+.prose-custom .page-sources h2 {
+    font-size: 1.5rem;
+    color: #3D352E;
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-top: 0;
+    margin-bottom: 1rem;
+}
+
+.page-sources ol {
+    list-style: decimal;
+    padding-left: 1.5rem;
+}
+
+.page-sources li + li {
+    margin-top: 0.5rem;
+}
+
+.review-dates {
+    margin-top: 1.5rem;
+}
+
 /* ========================================
    14. 響應式調整
    ======================================== */
@@ -501,4 +586,28 @@ body {
     .prose-custom h3 {
         font-size: 1.25rem;
     }
+
+    .prose-custom .page-sources h2 {
+        font-size: 1.25rem;
+    }
+}
+
+/* 斷點用 em：瀏覽器放大預設字級時欄位跟著變少，導覽與卡片不會被擠成一字一行。 */
+.site-nav { display: none; }
+@media (min-width: 48em) {
+    .site-nav { display: flex; }
+    .em-grid-3.em-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .em-grid-2-3.em-grid-2-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 64em) {
+    .em-grid-2-3.em-grid-2-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* 視窗不到 16em 只會發生在手機放大文字時；預設字級要窄到 256px 才符合。
+   內距用 rem，字放大時跟著變 2 倍，卡片裡只剩 2、3 個字寬，這裡收回來。頁首有 2 列，不再固定在畫面上。 */
+@media (max-width: 16em) {
+    .px-6.px-6 { padding-left: 0.75rem; padding-right: 0.75rem; }
+    .px-10.px-10 { padding-left: 1rem; padding-right: 1rem; }
+    .p-4.p-4, .p-6.p-6, .p-8.p-8, .strategy-card, .support-card, .tldr-box, .highlight-box, .faq-question, .faq-answer-content { padding-left: 0.5rem; padding-right: 0.5rem; }
+    .sticky.sticky { position: static; }
 }

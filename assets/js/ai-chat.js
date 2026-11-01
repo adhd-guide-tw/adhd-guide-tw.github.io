@@ -4,14 +4,9 @@
 /** ADHDChat 讓頁面用 init() 接上一組輸入框、按鈕與結果區，用法見 pages/faq.html。 */
 const ADHDChat = {
     // 頁面的 promptType 對應的任務與欄位。字數上限在閘道，輸入框的 maxlength 要與它相同。
+    // 免責聲明與 119、1925 由頁面固定顯示在 AI 區塊裡，不由模型附上。
     tasks: {
-        // 常見問答的免責聲明是模型寫在答案結尾的，沒寫完的答案沒有它，由頁面補上（partialHtml）。
-        // 文字要與 ai-gateway/src/task-catalog.mjs 的相同，test/ai-chat.test.mjs 會檢查。
-        faq: {
-            id: 'adhd-faq',
-            field: 'question',
-            notice: '**請注意：** 這是 AI 產生的衛教資訊，可能有錯，不能取代醫師的診斷，也請不要自行調整藥物。若你正處於危險中，請撥 119，或撥 1925 安心專線（24 小時）。'
-        },
+        faq: { id: 'adhd-faq', field: 'question' },
         taskSlicer: { id: 'adhd-task-slicer', field: 'task' },
         noteGenerator: { id: 'adhd-visit-notes', field: 'notes' }
     },
@@ -123,13 +118,12 @@ const ADHDChat = {
     },
 
     /**
-     * partialHtml 把沒寫完的答案畫成 HTML：先標明沒有寫完，任務有 notice 時補在最後。
-     * @param {{notice?: string}} task @param {string} partial @returns {string}
+     * partialHtml 把沒寫完的答案畫成 HTML，開頭標明沒有寫完。
+     * @param {string} partial @returns {string}
      */
-    partialHtml(task, partial) {
+    partialHtml(partial) {
         return '<p class="text-sm font-semibold text-gray-600">AI 的回答（沒有寫完）</p>'
-            + this.markdownToHtml(partial, true)
-            + (task.notice ? this.markdownToHtml(`---\n${task.notice}`) : '');
+            + this.markdownToHtml(partial, true);
     },
 
     /**
@@ -180,7 +174,7 @@ const ADHDChat = {
             errorSelector,
             promptType = 'faq',
             buttonText = '送出',
-            loadingText = '思考中...'
+            loadingText = '處理中'
         } = options;
 
         const input = document.querySelector(inputSelector);
@@ -221,7 +215,7 @@ const ADHDChat = {
             const userText = input.value.trim();
 
             if (!userText) {
-                showError('請先輸入內容喔！');
+                showError('請先輸入內容。');
                 return;
             }
 
@@ -257,7 +251,7 @@ const ADHDChat = {
                 if (progress) progress.finish();
                 // 錯誤帶著已經收到的答案（沒寫完、斷線、逾時）就留在畫面上，標明沒有寫完；使用者取消時沒有。
                 if (error && error.partial) {
-                    output.innerHTML = this.partialHtml(this.tasks[promptType] || this.tasks.faq, error.partial);
+                    output.innerHTML = this.partialHtml(error.partial);
                     if (resultContainer) resultContainer.classList.remove('hidden');
                 } else {
                     output.innerHTML = '';
