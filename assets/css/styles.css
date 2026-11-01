@@ -10,6 +10,8 @@ body {
     font-family: 'Manrope', 'Noto Sans TC', sans-serif;
     background-color: #FEFDF8;
     color: #3D352E;
+    overflow-wrap: break-word; /* Safari 15.3 以前不認得 anywhere */
+    overflow-wrap: anywhere;
 }
 
 /* Tailwind 的 container 在 lg、xl 等於斷點寬，視窗 1024、1280px 時內容只離邊緣 24px。
@@ -588,4 +590,24 @@ body {
     .prose-custom .page-sources h2 {
         font-size: 1.25rem;
     }
+}
+
+/* 斷點用 em：瀏覽器放大預設字級時欄位跟著變少，導覽與卡片不會被擠成一字一行。 */
+.site-nav { display: none; }
+@media (min-width: 48em) {
+    .site-nav { display: flex; }
+    .em-grid-3.em-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .em-grid-2-3.em-grid-2-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 64em) {
+    .em-grid-2-3.em-grid-2-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* 視窗不到 16em 只會發生在手機放大文字時；預設字級要窄到 256px 才符合。
+   內距用 rem，字放大時跟著變 2 倍，卡片裡只剩 2、3 個字寬，這裡收回來。頁首有 2 列，不再固定在畫面上。 */
+@media (max-width: 16em) {
+    .px-6.px-6 { padding-left: 0.75rem; padding-right: 0.75rem; }
+    .px-10.px-10 { padding-left: 1rem; padding-right: 1rem; }
+    .p-4.p-4, .p-6.p-6, .p-8.p-8, .strategy-card, .support-card, .tldr-box, .highlight-box, .faq-question, .faq-answer-content { padding-left: 0.5rem; padding-right: 0.5rem; }
+    .sticky.sticky { position: static; }
 }
