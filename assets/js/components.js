@@ -128,11 +128,11 @@ const SiteComponents = {
                     </div>
                 </div>
                 <div class="mt-12 border-t border-gray-700 pt-8 text-center text-gray-400 text-sm">
-                    <p class="text-gray-500">&copy; 2025 ADHD 光譜. 本計畫由陽明交大高教深耕計畫支持，是一個基於科學實證、充滿關懷的台灣在地衛教資源站。</p>
+                    <p class="text-gray-400">&copy; 2025 ADHD 光譜。本計畫由陽明交大高教深耕計畫支持。</p>
                     <div class="mt-4 flex justify-center items-center space-x-2">
-                        <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh_TW" target="_blank" rel="noopener noreferrer" class="flex items-center space-x-2 hover:text-white transition-colors">
+                        <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hant" target="_blank" rel="noopener noreferrer" class="flex items-center space-x-2 hover:text-white transition-colors">
                             ${this.ccIcons}
-                            <span class="ml-1">本網站內容採用創用 CC 姓名標示-相同方式分享 4.0 國際 授權條款進行授權。</span>
+                            <span class="ml-1">網站原創內容採用創用 CC 姓名標示─相同方式分享 4.0 國際授權條款。</span>
                         </a>
                     </div>
                 </div>
@@ -149,7 +149,7 @@ const SiteComponents = {
         <footer class="bg-[#3D352E] text-white mt-20">
             <div class="container mx-auto px-6 py-12 text-center">
                 <p class="text-gray-300">${message}</p>
-                <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜. All rights reserved.</p>
+                <p class="text-gray-400 text-sm mt-4">&copy; 2025 ADHD 光譜。網站原創內容採用<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hant" target="_blank" rel="noopener noreferrer" class="underline hover:text-white">創用 CC 姓名標示─相同方式分享 4.0 國際</a>授權條款。</p>
             </div>
         </footer>`;
     },

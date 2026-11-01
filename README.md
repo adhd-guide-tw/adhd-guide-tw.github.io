@@ -1,6 +1,6 @@
 # ✨ ADHD 光譜 (ADHD Spectrum)
 
-[![授權條款](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/deed.zh_TW)
+[![授權條款](https://img.shields.io/badge/License-CC%20BY--SA%204.0%20%7C%20MIT-lightgrey.svg)](#-授權條款)
 [![AI](https://img.shields.io/badge/AI-self--hosted%20gateway-6D9886)](./ai-gateway/README.md)
 [![專案狀態](https://img.shields.io/badge/status-completed-success)](#)
 
@@ -81,11 +81,4 @@
 
 ## 📜 授權條款
 
-本網站的所有原創內容，皆採用 **[創用 CC 姓名標示-相同方式分享 4.0 國際 (CC BY-SA 4.0)](https://creativecommons.org/licenses/by-sa/4.0/deed.zh_TW)** 授權條款進行授權。
-
-歡迎您在遵守以下規則的前提下，自由地分享、散佈與改作本站內容：
-
-  * **姓名標示 (BY)**：您必須給予適當的姓名標示，提供指向本授權條款的連結，並指明是否（對原始內容）有進行變更。
-  * **相同方式分享 (SA)**：如果您基於本網站內容進行混合、轉換或創作，您必須基於相同的授權條款來散佈您的貢獻。
-
-![Creative Commons License](https://i.creativecommons.org/l/by-sa/4.0/88x31.png)
+網站原創內容（`index.html` 與 `pages/` 的文字、`assets/images/`）採用[創用 CC 姓名標示─相同方式分享 4.0 國際（CC BY-SA 4.0）](https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hant)授權條款：轉載或改作時要標示姓名、附上授權條款連結、標明是否有修改，改作的內容也要用同樣條款分享。頁面引用的第三方照片與文字不在此限。其餘部分採用 [MIT](./LICENSE)；`ai-gateway/src/s2t-table.mjs` 衍生自 OpenCC，照 Apache 2.0（見 `ai-gateway/licenses/`）。
