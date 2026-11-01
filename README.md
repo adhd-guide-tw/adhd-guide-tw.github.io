@@ -50,8 +50,8 @@
 | `holistic-approach.html`        | ADHD 的非藥物治療                              |
 | `strategies.html`               | 生活策略                                       |
 | `for-supporters.html`           | 家人、伴侶、老師與朋友可以做什麼               |
-| `research.html`                 | **研究文章** - 所有深度研究文章的入口          |
-| `article-*.html`                | (共12篇) 針對特定研究報告的深度解讀文章        |
+| `research.html`                 | **研究新知** - 所有深度研究文章的入口          |
+| `article-*.html`                | 針對特定研究報告的深度解讀文章 (持續新增)      |
 | `faq.html`                      | 常見問題 (含 AI 問答)                          |
 | `glossary.html`                 | ADHD 詞彙表 (深度版)                           |
 | `scales-explained.html`         | 量表說明                                       |
