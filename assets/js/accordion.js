@@ -1,5 +1,9 @@
 /**
  * ADHD 光譜 - FAQ 手風琴模組
+ *
+ * 問題是 <button aria-expanded aria-controls>，鍵盤可以操作；一次只展開一題。
+ * 答案收合時由 CSS 的 visibility 藏起來，展開時加上 .is-open 並設 max-height 做動畫。
+ * 展開後內容變高（縮放、只放大文字、轉向）時，ResizeObserver 跟著更新 max-height，答案才不會被切掉。
  */
 
 const Accordion = {
@@ -8,40 +12,34 @@ const Accordion = {
      * @param {string} containerSelector - FAQ 項目的選擇器，預設為 '.faq-item'
      */
     init(containerSelector = '.faq-item') {
-        const items = document.querySelectorAll(containerSelector);
+        const items = Array.from(document.querySelectorAll(containerSelector))
+            .map((item) => ({
+                question: item.querySelector('.faq-question'),
+                answer: item.querySelector('.faq-answer'),
+            }))
+            .filter(({ question, answer }) => question && answer);
 
-        if (items.length === 0) {
-            return;
-        }
+        const setOpen = ({ question, answer }, open) => {
+            question.setAttribute('aria-expanded', String(open));
+            question.querySelector('svg')?.classList.toggle('rotate-180', open);
+            answer.classList.toggle('is-open', open);
+            answer.style.maxHeight = open ? answer.scrollHeight + 'px' : null;
+        };
 
-        items.forEach(item => {
-            const question = item.querySelector('.faq-question');
-            const answer = item.querySelector('.faq-answer');
-            const icon = question?.querySelector('svg');
+        const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+            items.forEach(({ question, answer }) => {
+                if (question.getAttribute('aria-expanded') === 'true') answer.style.maxHeight = answer.scrollHeight + 'px';
+            });
+        }) : null;
 
-            if (!question || !answer) return;
-
-            question.addEventListener('click', () => {
-                // 關閉所有其他項目
-                items.forEach(otherItem => {
-                    if (otherItem !== item) {
-                        const otherAnswer = otherItem.querySelector('.faq-answer');
-                        const otherIcon = otherItem.querySelector('.faq-question svg');
-                        if (otherAnswer?.style.maxHeight) {
-                            otherAnswer.style.maxHeight = null;
-                            otherIcon?.classList.remove('rotate-180');
-                        }
-                    }
+        items.forEach((entry) => {
+            resize?.observe(entry.answer.firstElementChild || entry.answer);
+            entry.question.addEventListener('click', () => {
+                const open = entry.question.getAttribute('aria-expanded') !== 'true';
+                items.forEach((other) => {
+                    if (other !== entry) setOpen(other, false);
                 });
-
-                // 切換當前項目
-                if (answer.style.maxHeight) {
-                    answer.style.maxHeight = null;
-                    icon?.classList.remove('rotate-180');
-                } else {
-                    answer.style.maxHeight = answer.scrollHeight + 'px';
-                    icon?.classList.add('rotate-180');
-                }
+                setOpen(entry, open);
             });
         });
     }

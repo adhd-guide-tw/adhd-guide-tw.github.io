@@ -95,11 +95,14 @@ test('maxOutputChars 是指令寫的字數上限的 4 倍，看診筆記以輸�
     assert.throws(() => finalizeOutput(catalog.get('adhd-task-slicer'), '字'.repeat(1601)), { code: 'too_long' });
 });
 
-// 頁面不另外顯示免責聲明，只靠模型附上。
-test('adhd-faq：指令要求在結尾用分隔線隔開，附上含 119 與 1925 的免責聲明', () => {
-    const { instructions } = catalog.get('adhd-faq');
-    assert.match(instructions, /單獨一行的 --- 隔開/);
-    assert.match(instructions, /\*\*請注意：\*\* 這是 AI 產生的衛教資訊，[^\n]*撥 119，或撥 1925 安心專線（24 小時）。/);
+// 免責聲明由頁面固定顯示：答案沒寫完、斷線或模型漏寫時都還在，也不會在答案結尾重複一次。
+test('每一頁的 AI 區塊都固定顯示「可能有錯」與 119、1925；指令不再要模型附聲明', () => {
+    for (const [page] of PAGES) {
+        const notice = /<p id="aiNotice"[^>]*>([^<]*)<\/p>/.exec(readRepoFile(page))?.[1] ?? '';
+        assert.match(notice, /由 AI [^。]*可能有錯[，。].*撥 119。1925 安心專線：心理諮詢，24 小時，免付費。$/, page);
+    }
+    assert.match(readRepoFile('pages/faq.html'), /可能有錯，不能取代醫師的診斷。要調整藥物，先問開藥的醫師。/);
+    for (const task of catalog.values()) assert.doesNotMatch(task.instructions, /請注意|免責|---/, task.id);
 });
 
 // 三個任務共用 SYSTEM_PROMPT，刪掉其中一條，每個任務都會少一道防線。
@@ -107,8 +110,22 @@ test('每個任務的 system 訊息都有危機處理、用藥與格式的規則
     for (const task of catalog.values()) {
         const [system] = buildMessages(task, validateInput(task, { [Object.keys(task.input)[0]]: '測試' }));
         assert.match(system.content, /請立刻撥 119/, task.id);
-        assert.match(system.content, /1925 安心專線（24 小時、免費）/, task.id);
+        assert.match(system.content, /「1925 安心專線：心理諮詢，24 小時，免付費」/, task.id);
+        assert.doesNotMatch(system.content, /免費/, task.id);
         assert.match(system.content, /第三級管制藥品/, task.id);
         assert.match(system.content, /網頁不認得 # 標題/, task.id);
     }
+});
+
+// 病名、科別與商品名的寫法和網站頁面相同；藥只列台灣有 ADHD 適應症許可證的 methylphenidate 與 atomoxetine。
+test('病名、科別與台灣有許可證的藥名和網站寫法一致', () => {
+    const faq = catalog.get('adhd-faq');
+    const [system] = buildMessages(faq, validateInput(faq, { question: '測試' }));
+    assert.match(system.content, /第一次寫「注意力不足過動症（ADHD）」/);
+    assert.match(system.content, /成人寫「精神科」，孩子與青少年寫「兒童青少年精神科」/);
+    assert.match(system.content, /「患者」只用在描述研究的受試者或就醫情境/);
+    assert.match(faq.instructions, /methylphenidate（台灣商品名：利他能 Ritalin、利長能 Ritalin LA、專思達 Concerta、思有得 Methydur 等）/);
+    assert.match(faq.instructions, /atomoxetine（台灣商品名：安保思定 Apo-Atomoxetine、思敏 Mixre、安妥 Atotine、思必靜 Xeirda、思專定 Atotine 等）/);
+    assert.match(faq.instructions, /AADPA）2022 年/);
+    for (const task of catalog.values()) assert.doesNotMatch(task.instructions, /到身心科|atomoxetine（思銳）/, task.id);
 });

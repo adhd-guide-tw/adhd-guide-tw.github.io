@@ -2,7 +2,7 @@
   "name": "adhd-guide-tw",
   "private": true,
   "description": "ADHD 光譜：台灣 ADHD 衛教網站與它的 AI 閘道",
-  "license": "MIT",
+  "license": "MIT AND CC-BY-SA-4.0 AND Apache-2.0",
   "engines": {
     "node": ">=24"
   },
