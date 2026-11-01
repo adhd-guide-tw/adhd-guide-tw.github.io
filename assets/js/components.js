@@ -54,11 +54,12 @@ const SiteComponents = {
                     ${this.logoSVG}
                     <span class="text-2xl font-extrabold text-[#A44A3F]">ADHD 光譜</span>
                 </a>
-                <nav class="hidden md:flex items-center space-x-10 text-lg">
-                    <a href="${prefix}pages/about-adhd.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">關於 ADHD</a>
-                    <a href="${prefix}pages/holistic-approach.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">治療選項</a>
+                <nav class="hidden md:flex items-center space-x-4 text-base lg:space-x-10 lg:text-lg">
+                    <a href="${prefix}pages/about-adhd.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">認識 ADHD</a>
+                    <a href="${prefix}pages/medication-guide.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">藥物治療</a>
+                    <a href="${prefix}pages/holistic-approach.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">非藥物治療</a>
                     <a href="${prefix}pages/strategies.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">生活策略</a>
-                    <a href="${prefix}pages/research.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">研究新知</a>
+                    <a href="${prefix}pages/research.html" class="text-gray-700 hover:text-[#A44A3F] transition-colors">研究文章</a>
                 </nav>
                 <a href="${prefix}pages/contact.html" class="bg-[#3D352E] text-white font-bold py-2 px-5 rounded-full hover:bg-[#A44A3F] transition-colors">
                     聯絡我們
@@ -98,18 +99,20 @@ const SiteComponents = {
                         <h4 class="text-lg font-bold mb-4">核心內容</h4>
                         <ul class="space-y-2">
                             <li><a href="${prefix}pages/about-adhd.html" class="text-gray-300 hover:text-white transition-colors">認識 ADHD</a></li>
-                            <li><a href="${prefix}pages/holistic-approach.html" class="text-gray-300 hover:text-white transition-colors">全方位治療</a></li>
+                            <li><a href="${prefix}pages/adhd-inner-world.html" class="text-gray-300 hover:text-white transition-colors">ADHD 的生活經驗</a></li>
+                            <li><a href="${prefix}pages/medication-guide.html" class="text-gray-300 hover:text-white transition-colors">藥物治療</a></li>
+                            <li><a href="${prefix}pages/holistic-approach.html" class="text-gray-300 hover:text-white transition-colors">非藥物治療</a></li>
                             <li><a href="${prefix}pages/strategies.html" class="text-gray-300 hover:text-white transition-colors">生活策略</a></li>
-                            <li><a href="${prefix}pages/faq.html" class="text-gray-300 hover:text-white transition-colors">常見問答</a></li>
+                            <li><a href="${prefix}pages/faq.html" class="text-gray-300 hover:text-white transition-colors">常見問題</a></li>
                         </ul>
                     </div>
                     <div>
                         <h4 class="text-lg font-bold mb-4">深度資源</h4>
                         <ul class="space-y-2">
-                            <li><a href="${prefix}pages/research.html" class="text-gray-300 hover:text-white transition-colors">研究新知</a></li>
+                            <li><a href="${prefix}pages/research.html" class="text-gray-300 hover:text-white transition-colors">研究文章</a></li>
                             <li><a href="${prefix}pages/glossary.html" class="text-gray-300 hover:text-white transition-colors">詞彙表</a></li>
-                            <li><a href="${prefix}pages/scales-explained.html" class="text-gray-300 hover:text-white transition-colors">認識量表</a></li>
-                            <li><a href="${prefix}pages/toolbox.html" class="text-gray-300 hover:text-white transition-colors">實用工具箱</a></li>
+                            <li><a href="${prefix}pages/scales-explained.html" class="text-gray-300 hover:text-white transition-colors">量表說明</a></li>
+                            <li><a href="${prefix}pages/toolbox.html" class="text-gray-300 hover:text-white transition-colors">工具箱</a></li>
                         </ul>
                     </div>
                     <div>
@@ -123,7 +126,7 @@ const SiteComponents = {
                     <div>
                         <h4 class="text-lg font-bold mb-4">給支持者</h4>
                         <ul class="space-y-2">
-                            <li><a href="${prefix}pages/for-supporters.html" class="text-gray-300 hover:text-white transition-colors">支持者指南</a></li>
+                            <li><a href="${prefix}pages/for-supporters.html" class="text-gray-300 hover:text-white transition-colors">家人、伴侶、老師與朋友可以做什麼</a></li>
                         </ul>
                     </div>
                 </div>
